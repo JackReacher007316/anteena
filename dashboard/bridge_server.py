@@ -13,7 +13,9 @@ What it does
   posts its verification back to   POST /api/matlab/result
 * The dashboard polls   GET /api/status   to show the *real* MATLAB link state
   (MATLAB counts as connected only while it is actually polling).
-* POST /api/matlab/launch starts MATLAB with the live link (live_verify).
+* POST /api/matlab/launch starts MATLAB with the live link (live_verify) -
+  once: while MATLAB is starting it is not launched again, and when MATLAB is
+  already linked its live window is brought back instead.
 
 The latest input is also written (atomically) to data/user_input.json so MATLAB
 can fall back to watching that file when the bridge is not reachable.
@@ -31,8 +33,13 @@ POST requests must be application/json, so other websites cannot fire
 Usage
 -----
     python dashboard/bridge_server.py            # http://localhost:8000
-    python dashboard/bridge_server.py --port 8080 --host 127.0.0.1
+    python dashboard/bridge_server.py --port 8080
     python dashboard/bridge_server.py --allow-origin https://example.org
+
+A second copy started on the same port notices the running bridge and exits.
+Run it in the background with pythonw (no console): output then goes to
+data/bridge.log (or --log-file). dashboard/live_link_setup.py install sets it
+up to start with Windows.
 
 Only the Python standard library is used.
 """
@@ -44,22 +51,30 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import uuid
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(DASHBOARD_DIR, ".."))
 MATLAB_DIR = os.path.join(PROJECT_ROOT, "matlab")
 DEFAULT_DATA_FILE = os.path.join(PROJECT_ROOT, "data", "user_input.json")
+DEFAULT_LOG_FILE = os.path.join(PROJECT_ROOT, "data", "bridge.log")
 CST_EXE = r"C:\CST\AMD64\CST DESIGN ENVIRONMENT_AMD64.exe"
 
+# Bumped when the API changes; the dashboard flags older bridges.
+BRIDGE_API = 3
 # MATLAB is reported as connected while its last poll is younger than this.
 MATLAB_TIMEOUT_S = 3.0
+# After a launch MATLAB needs a while before its first poll; don't launch again.
+LAUNCH_GRACE_S = 120.0
 # Upper bound for request bodies (inputs/results are a few KB).
 MAX_BODY_BYTES = 1_000_000
 
@@ -153,7 +168,10 @@ def atomic_write_json(path, data, retries=5):
             os.unlink(tmp)
         except OSError:
             pass
-        print(f"[bridge] warning: could not write {path}: {exc}")
+        try:
+            print(f"[bridge] warning: could not write {path}: {exc}")
+        except (OSError, ValueError):
+            pass
     return False
 
 
@@ -172,6 +190,8 @@ class LinkState:
         self.matlab_version = None
         self.matlab_result = None
         self.matlab_result_at = None
+        self.launch_at = None   # last time MATLAB was launched by the bridge
+        self.show_seq = 0       # bumped to ask a running live_verify to show its window
         self._cst_cache = (0.0, False)
         self._load_previous_input()
 
@@ -224,11 +244,15 @@ class LinkState:
                 if version:
                     self.matlab_version = version
             if self.latest is None:
-                return {"seq": 0, "session": self.session, "status": "empty"}
+                return {"seq": 0, "session": self.session, "status": "empty",
+                        "show_seq": self.show_seq}
             same_session = session is None or session == self.session
             if since is not None and since == self.seq and same_session:
-                return {"seq": self.seq, "session": self.session, "unchanged": True}
-            return dict(self.latest)
+                return {"seq": self.seq, "session": self.session, "unchanged": True,
+                        "show_seq": self.show_seq}
+            reply = dict(self.latest)
+            reply["show_seq"] = self.show_seq
+            return reply
 
     def store_result(self, result):
         with self.lock:
@@ -238,6 +262,31 @@ class LinkState:
             result["received_at"] = time.time()
             self.matlab_result = result
             self.matlab_result_at = result["received_at"]
+
+    # -- launching / showing MATLAB -------------------------------------------
+    def note_launch(self):
+        with self.lock:
+            self.launch_at = time.time()
+
+    def request_show(self):
+        """Ask the running live_verify to bring its window back (next poll)."""
+        with self.lock:
+            self.show_seq += 1
+            return self.show_seq
+
+    def _matlab_starting_locked(self):
+        """Launched recently and MATLAB has not polled since."""
+        if self.launch_at is None or time.time() - self.launch_at > LAUNCH_GRACE_S:
+            return False
+        return self.matlab_last_poll is None or self.matlab_last_poll < self.launch_at
+
+    def matlab_starting(self):
+        with self.lock:
+            return self._matlab_starting_locked()
+
+    def launch_age(self):
+        with self.lock:
+            return None if self.launch_at is None else time.time() - self.launch_at
 
     # -- status ---------------------------------------------------------------
     def _matlab_connected_locked(self):
@@ -271,8 +320,11 @@ class LinkState:
             data = {
                 "status": "online",
                 "bridge": "online",
+                "api": BRIDGE_API,
+                "pid": os.getpid(),
                 "session": self.session,
                 "matlab_connected": self._matlab_connected_locked(),
+                "matlab_starting": self._matlab_starting_locked(),
                 "matlab_last_seen_s": None if last is None else round(time.time() - last, 2),
                 "matlab_version": self.matlab_version,
                 "input_seq": self.seq,
@@ -305,7 +357,10 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         if urlparse(self.path).path in self.quiet_paths:
             return
-        super().log_message(fmt, *args)
+        try:
+            super().log_message(fmt, *args)
+        except (OSError, ValueError, AttributeError):
+            pass   # console gone (closed pipe / window): never fail a request over a log line
 
     # -- routing ------------------------------------------------------------
     def do_OPTIONS(self):
@@ -456,8 +511,16 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if target == "live" and self.state.matlab_connected():
+            self.state.request_show()   # live_verify re-opens / raises its window
             self.send_json({"status": "already_connected", "target": target,
-                            "message": "MATLAB is already live-linked - just move a slider."})
+                            "message": "MATLAB is already live-linked - its window was "
+                                       "brought to the front. Just move a slider."})
+            return
+        if target == "live" and self.state.matlab_starting():
+            age = self.state.launch_age() or 0.0
+            self.send_json({"status": "starting", "target": target,
+                            "message": f"MATLAB is already starting (launched {age:.0f} s ago) - "
+                                       "its live window opens in a moment."})
             return
 
         manual = f"cd('{MATLAB_DIR}'); {command}"
@@ -480,26 +543,79 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"status": "error", "target": target, "manual_command": manual,
                             "message": f"Could not start MATLAB ({exc}). Run manually: {manual}"})
             return
+        if target == "live":
+            self.state.note_launch()
         self.send_json({"status": "launched", "target": target, "matlab_exe": exe,
                         "manual_command": manual,
                         "message": f"Starting MATLAB with '{command}' - the window opens in "
                                    "a few seconds and then follows the dashboard live."})
 
 
-def make_server(host="0.0.0.0", port=8000, data_file=DEFAULT_DATA_FILE, allow_origins=()):
+class BridgeHTTPServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True   # POSIX: quick restarts (TIME_WAIT)
+
+    def server_bind(self):
+        if os.name == "nt":
+            # On Windows SO_REUSEADDR lets a second bridge bind the same port
+            # and silently split the traffic - claim the port exclusively.
+            self.allow_reuse_address = False
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def make_server(host="127.0.0.1", port=8000, data_file=DEFAULT_DATA_FILE, allow_origins=()):
     """allow_origins: extra browser origins for the API ('*' = any website)."""
     origins = frozenset(DEFAULT_ALLOWED_ORIGINS) | {normalize_origin(o) for o in allow_origins or ()}
     handler = type("Handler", (BridgeRequestHandler,),
                    {"state": LinkState(data_file), "allowed_origins": origins})
-    http.server.ThreadingHTTPServer.allow_reuse_address = True
-    server = http.server.ThreadingHTTPServer((host, port), handler)
-    server.daemon_threads = True
-    return server
+    return BridgeHTTPServer((host, port), handler)
+
+
+def running_bridge(port, timeout=1.5):
+    """Status of a live-link bridge already answering on this port, else None."""
+    try:
+        with urlopen(f"http://127.0.0.1:{port}/api/status", timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (OSError, URLError, ValueError):
+        return None
+    return data if isinstance(data, dict) and "session" in data else None
+
+
+def old_bridge_running(port, timeout=1.5):
+    """True when the pre-live-link bridge (always claims matlab_connected) answers."""
+    try:
+        with urlopen(f"http://127.0.0.1:{port}/api/status", timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (OSError, URLError, ValueError):
+        return False
+    return isinstance(data, dict) and "matlab_connected" in data and "session" not in data
+
+
+def setup_logging(log_file=None, max_bytes=1_000_000):
+    """Send output to a log file when asked to, or when there is no console
+    (pythonw / started at Windows log-in) - otherwise http.server would crash
+    writing its request log to a missing sys.stderr."""
+    if not log_file and sys.stdout is not None and sys.stderr is not None:
+        return None
+    log_file = log_file or DEFAULT_LOG_FILE
+    try:
+        os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+        if os.path.exists(log_file) and os.path.getsize(log_file) > max_bytes:
+            os.replace(log_file, log_file + ".1")
+        stream = open(log_file, "a", encoding="utf-8", buffering=1)
+    except OSError:
+        stream = open(os.devnull, "w", encoding="utf-8")
+    sys.stdout = stream
+    sys.stderr = stream
+    return log_file
 
 
 def run():
     ap = argparse.ArgumentParser(description="Web dashboard <-> MATLAB live bridge")
-    ap.add_argument("--host", default=os.environ.get("BRIDGE_HOST", "0.0.0.0"))
+    ap.add_argument("--host", default=os.environ.get("BRIDGE_HOST", "127.0.0.1"),
+                    help="interface to listen on (default 127.0.0.1 = this PC only)")
     ap.add_argument("--port", type=int, default=int(os.environ.get("BRIDGE_PORT", "8000")))
     ap.add_argument("--data-file", default=os.environ.get("BRIDGE_DATA_FILE", DEFAULT_DATA_FILE),
                     help="where the latest dashboard input is mirrored as JSON")
@@ -508,9 +624,30 @@ def run():
                     help="extra website allowed to use the bridge from the browser "
                          "(repeatable; '*' = any). Always allowed: "
                          f"{PUBLIC_SITE_ORIGIN} and http://localhost:<port>")
+    ap.add_argument("--log-file", default=os.environ.get("BRIDGE_LOG_FILE"),
+                    help="write output to this file (automatic when there is no console)")
+    ap.add_argument("--force", action="store_true",
+                    help="start even if a bridge already answers on this port")
     args = ap.parse_args()
+    setup_logging(args.log_file)
 
-    server = make_server(args.host, args.port, args.data_file, args.allow_origin)
+    existing = None if args.force else running_bridge(args.port)
+    if existing:
+        print(f"[bridge] A bridge is already running on port {args.port} "
+              f"(pid {existing.get('pid', '?')}) - nothing to do.")
+        print(f"[bridge] Dashboard: http://localhost:{args.port}/   Website: {PUBLIC_SITE_URL}")
+        return 0
+    try:
+        server = make_server(args.host, args.port, args.data_file, args.allow_origin)
+    except OSError as exc:
+        print(f"[bridge] Cannot listen on {args.host}:{args.port} ({exc}).")
+        if old_bridge_running(args.port):
+            print("[bridge] An OLD version of this bridge is running on that port. Close its "
+                  "console window (or restart the PC) and start the bridge again.")
+        else:
+            print(f"[bridge] Another program uses port {args.port}. Start the bridge on another "
+                  f"port (--port 8001) and open the website with ?bridge=8001")
+        return 1
     exe = find_matlab()
     print("=" * 70)
     print(f"  Dashboard <-> MATLAB live bridge on http://localhost:{args.port}")
@@ -520,13 +657,16 @@ def run():
     print(f"  MATLAB executable  : {exe or 'not found (set MATLAB_EXE to enable 1-click launch)'}")
     print(f"  Input mirror file  : {args.data_file}")
     print("=" * 70)
+    print(f"[bridge] started {time.strftime('%Y-%m-%d %H:%M:%S')} pid {os.getpid()} "
+          f"on {args.host}:{args.port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n[bridge] stopped")
     finally:
         server.server_close()
+    return 0
 
 
 if __name__ == "__main__":
-    run()
+    sys.exit(run())

@@ -13,10 +13,17 @@ function live_verify(varargin)
 %
 %   Usage
 %       live_verify                           connect to http://127.0.0.1:8000
+%                                             (already running: show the window)
 %       live_verify('http://127.0.0.1:8080')  other bridge address
 %       live_verify('Period', 0.5)            poll period in seconds (0.25)
 %       live_verify('Quiet', true)            no Command Window log
 %       live_verify stop                      stop the link, close the window
+%
+%   Closing the window only hides it: the link keeps running in the
+%   background, so the dashboard stays connected. Bring the window back with
+%   live_verify or with CONNECT MATLAB in the dashboard; end the link with
+%   live_verify stop (or by quitting MATLAB). install_live_link.bat adds
+%   live_verify to MATLAB's startup.m, so every MATLAB session is linked.
 %
 %   While the link runs
 %     * the window "Web Dashboard -> MATLAB Live Verification" shows the
@@ -42,6 +49,13 @@ function live_verify(varargin)
         return;
     end
 
+    % Already running (e.g. started by startup.m, then "matlab -r live_verify"):
+    % a plain live_verify just brings the window back.
+    if nargin == 0 && show_running_link(TAG)
+        fprintf('[live_verify] Live link already running - window shown.\n');
+        return;
+    end
+
     opt = parse_options(varargin{:});
     stop_link(TAG);                       % only one live link at a time
 
@@ -61,6 +75,9 @@ function live_verify(varargin)
         'pendingLog', false, ...
         'paused', false, ...
         'report', [], ...
+        'lastCfg', [], ...
+        'showSeq', NaN, ...               % dashboard "show the window" requests
+        'showSession', '', ...
         'version', version_tag());
     clock0 = tic;
     getopts = weboptions('Timeout', opt.Timeout, 'ContentType', 'text', ...
@@ -78,6 +95,7 @@ function live_verify(varargin)
                        'Period', opt.Period, 'BusyMode', 'drop', ...
                        'TimerFcn', @on_tick, 'ErrorFcn', @on_timer_error, ...
                        'StopFcn', @(obj, ~) delete(obj));
+    link_timer.UserData = struct('show', @show_window);   % used by show_running_link
 
     if ~opt.Quiet
         rule = repmat('=', 1, 74);
@@ -85,7 +103,8 @@ function live_verify(varargin)
         fprintf(' LIVE LINK  web dashboard -> MATLAB                       (live_verify)\n');
         fprintf('   bridge : %s   (start it: python dashboard/bridge_server.py)\n', opt.Url);
         fprintf('   vars   : web_input, web_verification  (refreshed on every change)\n');
-        fprintf('   stop   : close the window or run  live_verify stop\n');
+        fprintf('   window : closing it keeps the link running; live_verify shows it again\n');
+        fprintf('   stop   : live_verify stop\n');
         fprintf('%s\n', rule);
     end
     start(link_timer);
@@ -95,8 +114,7 @@ function live_verify(varargin)
     % ---------------------------------------------------------------------
     function on_tick(~, ~)
         if ~isempty(ui) && ~isvalid(ui.fig)
-            stop_link(TAG);
-            return;
+            ui = [];                      % window deleted: keep linking in the background
         end
         try
             [cfg, src] = fetch_input();
@@ -133,6 +151,7 @@ function live_verify(varargin)
                               'since', sprintf('%d', since), 'session', session, ...
                               'client', 'matlab', 'ver', st.version, getopts);
                 reply = jsondecode(char(txt));
+                check_show_request(reply);
                 st.bridgeFails = 0;
                 st.source = 'bridge';
                 src = 'bridge';
@@ -177,6 +196,51 @@ function live_verify(varargin)
         end
     end
 
+    function check_show_request(reply)
+    %CHECK_SHOW_REQUEST  CONNECT MATLAB in the dashboard asks to show the window.
+        if ~isstruct(reply) || ~isfield(reply, 'show_seq')
+            return;
+        end
+        n = double(reply.show_seq);
+        session = '';
+        if isfield(reply, 'session')
+            session = char(reply.session);
+        end
+        if isnan(st.showSeq) || ~strcmp(session, st.showSession)
+            st.showSeq = n;               % first contact / new bridge: just remember
+            st.showSession = session;
+        elseif n > st.showSeq
+            st.showSeq = n;
+            show_window();
+        end
+    end
+
+    function show_window()
+    %SHOW_WINDOW  Re-open the live window (after it was closed) or raise it.
+        if ~isempty(ui) && isvalid(ui.fig)
+            try
+                figure(ui.fig);           % bring to front
+            catch
+                % cosmetic only
+            end
+            return;
+        end
+        ui = build_ui(TAG, opt.Url);
+        if isempty(ui)
+            return;                       % no display: Command Window mode
+        end
+        ui.fig.CloseRequestFcn = @on_close;
+        ui.pause.ValueChangedFcn = @on_pause;
+        if st.paused
+            ui.pause.Value = true;
+            ui.pause.Text = 'Resume';
+        end
+        if ~isempty(st.report)
+            render_report(ui, st.report, st.lastCfg);
+        end
+        refresh_banner();
+    end
+
     function tf = is_new(reply)
         session = '';
         if isfield(reply, 'session')
@@ -197,6 +261,7 @@ function live_verify(varargin)
         st.lastSession = report.session;
         st.count = st.count + 1;
         st.report = report;
+        st.lastCfg = cfg;
         st.lastInputAt = toc(clock0);
         st.pendingLog = true;
 
@@ -256,9 +321,15 @@ function live_verify(varargin)
     end
 
     function on_close(~, ~)
-        stop_link(TAG);
+    %ON_CLOSE  Closing the window hides it; the link keeps running.
+        if ~isempty(ui) && isvalid(ui.fig)
+            delete(ui.fig);
+        end
+        ui = [];
         if ~opt.Quiet
-            fprintf('[live_verify] Window closed - live link stopped.\n');
+            fprintf(['[live_verify] Window closed - the live link keeps running in the background.\n' ...
+                     '              Show it again: live_verify   (or CONNECT MATLAB in the dashboard)\n' ...
+                     '              Stop the link: live_verify stop\n']);
         end
     end
 
@@ -305,6 +376,24 @@ function opt = parse_options(varargin)
     end
     while endsWith(opt.Url, '/')
         opt.Url = opt.Url(1:end - 1);
+    end
+end
+
+function tf = show_running_link(tag)
+%SHOW_RUNNING_LINK  Ask a running live link to show its window.
+    tf = false;
+    tmrs = timerfindall('Tag', tag);
+    for k = 1:numel(tmrs)
+        t = tmrs(k);
+        if ~isvalid(t) || ~strcmp(t.Running, 'on')
+            continue;
+        end
+        ud = t.UserData;
+        if isstruct(ud) && isfield(ud, 'show')
+            ud.show();
+            tf = true;
+            return;
+        end
     end
 end
 
@@ -634,7 +723,7 @@ function [txt, color] = banner_text(st)
             end
             color = C.amber;
         otherwise
-            txt = sprintf('  %s Waiting for the bridge at %s  (python dashboard/bridge_server.py)', ...
+            txt = sprintf('  %s Waiting for the bridge at %s  (install_live_link.bat starts it)', ...
                           char(9675), st.url);
             color = C.amber;
     end

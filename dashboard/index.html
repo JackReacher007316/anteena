@@ -1029,7 +1029,7 @@
           <p style="margin: 8px 0 0 0; font-size: 0.8rem; color: #94a3b8;">
             Starts MATLAB with the live verification window (or reuses the one already running). Keep it open:
             every antenna, model and slider change you make here appears in MATLAB instantly and is verified there.
-            On the public website, start the bridge on your PC first (<code>start_live_verification.bat</code>).
+            On the public website: one-time setup on your PC first (<code>install_live_link.bat</code>, see below).
           </p>
         </div>
 
@@ -1060,13 +1060,23 @@
             <code id="mlink-cmd">cd('&lt;repo&gt;/matlab'); live_verify</code>
           </div>
           <div class="mlink-help" id="mlink-bridge-help" style="display: none;">
-            <strong>No bridge?</strong> MATLAB runs on your PC and is reached through a small Python bridge there.
-            Double-click <code>start_live_verification.bat</code> (bridge + dashboard + MATLAB), or run
-            <code>python dashboard/bridge_server.py</code>. The public website
-            (<a href="https://jackreacher007316.github.io/anteena/" target="_blank" rel="noopener">jackreacher007316.github.io/anteena</a>)
-            connects to that bridge when you click <strong>CONNECT MATLAB</strong>; allow local-network access if the
-            browser asks.
+            <strong>Connect MATLAB on this PC - one-time setup (Windows):</strong>
+            <ol class="mlink-steps">
+              <li>Get the PC connector: <a class="connector-zip" href="https://github.com/JackReacher007316/anteena" target="_blank" rel="noopener">&#11015; download ZIP</a>
+                and unzip it (already have the repository? <code>git pull</code> instead).</li>
+              <li>Double-click <code>install_live_link.bat</code>. It starts the bridge now and at every Windows
+                log-in, checks MATLAB once and makes MATLAB open the live link by itself.</li>
+              <li>Come back here and click <strong>CONNECT MATLAB</strong>. If the browser asks to allow access to
+                devices on your local network, click <strong>Allow</strong>.</li>
+            </ol>
+            Blocked by mistake? Click the icon left of the address bar &gt; Site settings &gt; allow local network
+            access, then reload. The website itself is always online
+            (<a href="https://jackreacher007316.github.io/anteena/" target="_blank" rel="noopener">jackreacher007316.github.io/anteena</a>).
           </div>
+          <label class="mlink-auto" title="Remembered in this browser">
+            <input type="checkbox" id="mlink-auto" checked />
+            Start MATLAB automatically when this page opens and finds the bridge
+          </label>
         </div>
 
         <!-- Files in Repository -->

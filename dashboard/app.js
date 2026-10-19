@@ -5018,9 +5018,10 @@ function initMatlabModal() {
     }, delay);
     const bridgeMissing = () => (MatlabLink.sameOrigin
       ? '⚠ Bridge server not reachable. Start it with:  python dashboard/bridge_server.py'
-      : `⚠ No bridge found on this PC (${MatlabLink.localUrl}). Start it first: double-click `
-        + 'start_live_verification.bat (or run: python dashboard/bridge_server.py), then click CONNECT again. '
-        + 'If the browser asks to allow access to devices on your local network, click Allow.');
+      : `⚠ No bridge found on this PC (${MatlabLink.localUrl}). One-time setup: download the PC connector `
+        + '(MATLAB panel, F4), unzip it and double-click install_live_link.bat - then click CONNECT again. '
+        + 'If the browser asks to allow access to devices on your local network, click Allow. '
+        + 'Blocked by mistake? Click the icon left of the address bar > Site settings > allow local network access.');
 
     if (btn) btn.textContent = '⏳ CONNECTING...';
     if (btnAuto) btnAuto.textContent = '⏳ LOOKING FOR THE BRIDGE...';
@@ -5037,19 +5038,22 @@ function initMatlabModal() {
       return;
     }
 
+    if (!isCurrentBridge(MatlabLink.status)) {
+      if (btn) btn.textContent = '⚠ OLD BRIDGE';
+      if (btnAuto) btnAuto.textContent = '⚠ OLD BRIDGE ON THIS PC - SEE BELOW';
+      showFeedback(`⚠ ${matlabLinkState().detail}`, false);
+      resetButtons(4000);
+      return;
+    }
+
     if (btn) btn.textContent = '⏳ STARTING MATLAB...';
     if (btnAuto) btnAuto.textContent = '⏳ STARTING MATLAB LIVE LINK...';
     showFeedback('🚀 Asking the bridge to start MATLAB with live_verify ...', true);
 
-    fetch(bridgeUrl('/api/matlab/launch'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: 'live' }),
-    })
-      .then(r => r.json())
+    requestMatlabLaunch()
       .then(res => {
-        if (res.status === 'launched' || res.status === 'already_connected') {
-          const done = res.status === 'launched' ? '✅ MATLAB STARTING...' : '✅ MATLAB ALREADY LIVE';
+        if (res.status === 'launched' || res.status === 'already_connected' || res.status === 'starting') {
+          const done = res.status === 'already_connected' ? '✅ MATLAB ALREADY LIVE' : '✅ MATLAB STARTING...';
           if (btn) btn.textContent = done;
           if (btnAuto) btnAuto.textContent = done;
           showFeedback(`✅ ${res.message}`, true);
@@ -5126,6 +5130,9 @@ function initMatlabModal() {
 
 const BRIDGE_LOCAL_URL = 'http://127.0.0.1:8000';
 const BRIDGE_STORE_KEY = 'anteena.matlabBridge';
+const AUTO_START_KEY = 'anteena.matlabAutoStart';
+// The "PC connector": this repository (bridge + MATLAB files + install_live_link.bat).
+const CONNECTOR_ZIP_URL = 'https://github.com/JackReacher007316/anteena/archive/refs/heads/arena/000da5f3-anteena.zip';
 
 const MatlabLink = {
   pending: null,      // newest payload waiting to be sent
@@ -5143,20 +5150,30 @@ const MatlabLink = {
   explicit: false,    // localUrl came from ?bridge=
   polling: null,      // in-flight status poll (Promise)
   offlineTicks: 0,
+  autoStart: true,    // start MATLAB when the page finds a bridge and MATLAB is not linked
+  autoTried: false,   // ... once per page load (closing MATLAB on purpose is respected)
   THROTTLE_MS: 120,   // max ~8 inputs/s while dragging a slider
   POLL_MS: 1500,
   PROBE_TIMEOUT_MS: 4000,
 };
 
+function readStore(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+
+function writeStore(key, value) {
+  try {
+    if (value === null || value === undefined) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch (e) { /* storage disabled - just not remembered */ }
+}
+
 function readStoredBridge() {
-  try { return localStorage.getItem(BRIDGE_STORE_KEY); } catch (e) { return null; }
+  return readStore(BRIDGE_STORE_KEY);
 }
 
 function storeBridge(url) {
-  try {
-    if (url) localStorage.setItem(BRIDGE_STORE_KEY, url);
-    else localStorage.removeItem(BRIDGE_STORE_KEY);
-  } catch (e) { /* storage disabled - the bridge is just not remembered */ }
+  writeStore(BRIDGE_STORE_KEY, url || null);
 }
 
 // '8080' | '127.0.0.1:8080' | 'http://host:port/anything' -> 'http://host:port'.
@@ -5179,6 +5196,7 @@ function normalizeBridgeUrl(text) {
 
 function initBridgeConfig() {
   const L = MatlabLink;
+  L.autoStart = readStore(AUTO_START_KEY) !== '0';
   // GitHub Pages (the public website) only serves files - no bridge behind it.
   L.sameOrigin = /^https?:$/.test(window.location.protocol)
     && !/(^|\.)github\.io$/i.test(window.location.hostname);
@@ -5258,6 +5276,31 @@ function onBridgeFound(base) {
   if (L.pending && !L.timer) flushMatlabSync();
 }
 
+// Bridges before the live-link version always claim "matlab_connected".
+function isCurrentBridge(st) {
+  return !!st && typeof st.session === 'string';
+}
+
+function requestMatlabLaunch() {
+  return fetch(bridgeUrl('/api/matlab/launch'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target: 'live' }),
+  }).then(r => r.json());
+}
+
+// First contact with a bridge on this page load: start MATLAB if it is not
+// linked yet (the bridge never starts a second MATLAB while one is starting).
+function maybeAutoStartMatlab(st) {
+  const L = MatlabLink;
+  if (L.autoTried) return;
+  L.autoTried = true;
+  if (!L.autoStart || !isCurrentBridge(st) || st.matlab_connected || st.matlab_starting || !st.matlab_exe) return;
+  requestMatlabLaunch()
+    .then(() => setTimeout(() => pollMatlabStatus(), 1200))
+    .catch(() => { /* reported by the status poll */ });
+}
+
 // The user asked for MATLAB: from now on also look for the bridge on this PC.
 function enableLocalBridge() {
   MatlabLink.localOptIn = true;
@@ -5329,6 +5372,15 @@ function flushMatlabSync() {
 function startMatlabLinkMonitor() {
   if (MatlabLink.monitor) return;
   initBridgeConfig();
+  const autoBox = document.getElementById('mlink-auto');
+  if (autoBox) {
+    autoBox.checked = MatlabLink.autoStart;
+    autoBox.addEventListener('change', () => {
+      MatlabLink.autoStart = autoBox.checked;
+      writeStore(AUTO_START_KEY, autoBox.checked ? '1' : '0');
+    });
+  }
+  document.querySelectorAll('.connector-zip').forEach(a => { a.href = CONNECTOR_ZIP_URL; });
   pollMatlabStatus();
   MatlabLink.monitor = setInterval(() => {
     // No bridge: look again every ~4.5 s instead of every tick.
@@ -5353,6 +5405,7 @@ function pollMatlabStatus(timeoutMs) {
         if (st.matlab_dir) L.matlabDir = st.matlab_dir;
         if (found) onBridgeFound(base);
         renderMatlabLink();
+        maybeAutoStartMatlab(st);
         return st;
       } catch (err) {
         // This page comes from a plain web server (e.g. the public website).
@@ -5373,19 +5426,31 @@ function matlabLinkState() {
   if (!st) {
     if (!L.sameOrigin && !L.localOptIn) {
       return { color: '#ffaa00', text: 'OFFLINE - CLICK CONNECT MATLAB',
-               detail: 'Public website: MATLAB runs on your PC. Start the bridge there (double-click '
-                     + 'start_live_verification.bat, or run: python dashboard/bridge_server.py), then click '
-                     + 'CONNECT MATLAB (LIVE).' };
+               detail: 'Public website: MATLAB runs on your PC. One-time setup there: double-click '
+                     + 'install_live_link.bat (it keeps the bridge running), then click CONNECT MATLAB (LIVE).' };
     }
     if (!L.sameOrigin) {
       return { color: '#ff5555', text: 'BRIDGE NOT FOUND ON THIS PC',
-               detail: `No bridge at ${L.localUrl}. Start it on this PC: double-click start_live_verification.bat, `
-                     + 'or run: python dashboard/bridge_server.py. This page connects by itself once it runs.' };
+               detail: `No bridge at ${L.localUrl}. One-time setup on this PC: double-click install_live_link.bat `
+                     + '(or start_live_verification.bat). This page connects by itself once the bridge runs.' };
     }
     return { color: '#ff5555', text: 'BRIDGE OFFLINE',
              detail: 'Bridge server not reachable - start it with: python dashboard/bridge_server.py' };
   }
+  if (!isCurrentBridge(st)) {
+    return { color: '#ff5555', text: 'OLD BRIDGE ON THIS PC - UPDATE IT',
+             detail: 'An old version of the bridge runs on this PC. Close its window, get the new PC connector '
+                   + '(Download ZIP in the MATLAB panel, or git pull) and double-click install_live_link.bat.' };
+  }
   if (!st.matlab_connected) {
+    if (st.matlab_starting) {
+      return { color: '#00d4ff', text: 'MATLAB STARTING...',
+               detail: 'MATLAB is opening with the live window - the first start can take a minute.' };
+    }
+    if (st.matlab_exe) {
+      return { color: '#ffaa00', text: 'NOT CONNECTED - CLICK CONNECT MATLAB',
+               detail: 'MATLAB is not running the live link. Click CONNECT MATLAB (LIVE), or run live_verify in MATLAB.' };
+    }
     return { color: '#ffaa00', text: 'NOT CONNECTED - RUN live_verify',
              detail: 'MATLAB is not polling the bridge. Click CONNECT MATLAB, or run live_verify in MATLAB.' };
   }
@@ -5458,8 +5523,9 @@ function renderMatlabLink() {
   if (modalStatus) modalStatus.textContent = `MATLAB live link | ${state.text}`;
   if (dirPath && MatlabLink.matlabDir) dirPath.textContent = MatlabLink.matlabDir;
   if (mCmd && MatlabLink.matlabDir) mCmd.textContent = `cd('${MatlabLink.matlabDir.replace(/'/g, "''")}'); live_verify`;
-  if (mHelp) mHelp.style.display = st && !st.matlab_connected ? 'block' : 'none';
-  if (mBridgeHelp) mBridgeHelp.style.display = st ? 'none' : 'block';
+  const current = isCurrentBridge(st);
+  if (mHelp) mHelp.style.display = current && !st.matlab_connected ? 'block' : 'none';
+  if (mBridgeHelp) mBridgeHelp.style.display = current ? 'none' : 'block';
 
   if (mMeta) {
     const parts = [];

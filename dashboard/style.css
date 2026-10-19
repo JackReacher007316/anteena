@@ -2545,3 +2545,20 @@ body {
 .mlink-help a {
   color: #38bdf8;
 }
+.mlink-steps {
+  margin: 6px 0 6px 18px;
+  padding: 0;
+  line-height: 1.55;
+}
+.mlink-auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.mlink-auto input {
+  accent-color: #00ff88;
+}

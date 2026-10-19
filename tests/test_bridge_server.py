@@ -5,6 +5,9 @@ Run from the repository root:
     python -m unittest discover -s tests -v
 """
 
+import contextlib
+import http.server
+import io
 import json
 import os
 import sys
@@ -96,7 +99,8 @@ class BridgeTestCase(unittest.TestCase):
         self.assertEqual(got["freq_range"], [1.5, 4.0])
         # ... and later polls are cheap "unchanged" replies.
         _, again = self.get("/api/matlab/input?since=1&client=matlab")
-        self.assertEqual(again, {"seq": 1, "session": got["session"], "unchanged": True})
+        self.assertEqual(again, {"seq": 1, "session": got["session"], "unchanged": True,
+                                 "show_seq": 0})
 
         # Polling marks MATLAB as connected (this is the heartbeat).
         _, st = self.get("/api/status")
@@ -285,11 +289,150 @@ class BridgeTestCase(unittest.TestCase):
                          ["https://a.org", "http://b.net", "*"])
         self.assertEqual(bridge_server.parse_origin_list(""), [])
 
+    # -- launching MATLAB: once, and "show" when it is already linked ----------
+    def fake_launcher(self):
+        """find_matlab -> a fake exe, Popen -> recorded instead of run."""
+        calls = []
+        orig_find, orig_popen = bridge_server.find_matlab, bridge_server.subprocess.Popen
+        bridge_server.find_matlab = lambda max_age=30.0: "/opt/MATLAB/R2026b/bin/matlab"
+        bridge_server.subprocess.Popen = lambda args, **kw: calls.append(args)
+        self.addCleanup(setattr, bridge_server, "find_matlab", orig_find)
+        self.addCleanup(setattr, bridge_server.subprocess, "Popen", orig_popen)
+        return calls
+
+    def test_status_reports_api_pid_and_starting(self):
+        _, st = self.get("/api/status")
+        self.assertEqual(st["api"], bridge_server.BRIDGE_API)
+        self.assertEqual(st["pid"], os.getpid())
+        self.assertFalse(st["matlab_starting"])
+
+    def test_launch_starts_matlab_only_once(self):
+        calls = self.fake_launcher()
+        code, res = self.post("/api/matlab/launch", {"target": "live"})
+        self.assertEqual((code, res["status"]), (200, "launched"))
+        self.assertEqual(len(calls), 1)
+        self.assertIn("live_verify", calls[0])
+        _, st = self.get("/api/status")
+        self.assertTrue(st["matlab_starting"])
+        self.assertFalse(st["matlab_connected"])
+        # A second click (or a second tab) while MATLAB is still starting: no 2nd MATLAB.
+        code, res = self.post("/api/matlab/launch", {"target": "live"})
+        self.assertEqual((code, res["status"]), (200, "starting"))
+        self.assertEqual(len(calls), 1)
+        # MATLAB's first poll ends "starting".
+        self.get("/api/matlab/input?client=matlab")
+        _, st = self.get("/api/status")
+        self.assertFalse(st["matlab_starting"])
+        self.assertTrue(st["matlab_connected"])
+
+    def test_launch_grace_period_expires(self):
+        calls = self.fake_launcher()
+        self.post("/api/matlab/launch", {"target": "live"})
+        self.state.launch_at -= bridge_server.LAUNCH_GRACE_S + 1   # MATLAB never came up
+        _, st = self.get("/api/status")
+        self.assertFalse(st["matlab_starting"])
+        code, res = self.post("/api/matlab/launch", {"target": "live"})
+        self.assertEqual((code, res["status"]), (200, "launched"))
+        self.assertEqual(len(calls), 2)
+
+    def test_connect_while_linked_asks_matlab_to_show_its_window(self):
+        calls = self.fake_launcher()
+        self.post("/api/matlab/input", PATCH_INPUT)
+        _, first = self.get("/api/matlab/input?since=-1&client=matlab")
+        self.assertEqual(first["show_seq"], 0)
+        code, res = self.post("/api/matlab/launch", {"target": "live"})
+        self.assertEqual((code, res["status"]), (200, "already_connected"))
+        self.assertEqual(calls, [])                      # nothing launched
+        _, again = self.get(f"/api/matlab/input?since=1&session={first['session']}&client=matlab")
+        self.assertTrue(again["unchanged"])
+        self.assertEqual(again["show_seq"], 1)           # live_verify re-opens its window
+
+    def test_running_bridge_detection(self):
+        port = self.server.server_address[1]
+        st = bridge_server.running_bridge(port)
+        self.assertEqual(st["session"], self.state.session)
+        self.assertFalse(bridge_server.old_bridge_running(port))
+        self.assertIsNone(bridge_server.running_bridge(free_port()))
+
+    def test_old_bridge_is_recognised(self):
+        class OldBridge(http.server.BaseHTTPRequestHandler):   # pre-live-link bridge
+            def do_GET(self):
+                body = json.dumps({"status": "connected", "matlab_connected": True}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        old = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OldBridge)
+        threading.Thread(target=old.serve_forever, daemon=True).start()
+        self.addCleanup(old.server_close)
+        self.addCleanup(old.shutdown)
+        port = old.server_address[1]
+        self.assertTrue(bridge_server.old_bridge_running(port))
+        self.assertIsNone(bridge_server.running_bridge(port))
+
+    def test_second_copy_exits_when_a_bridge_runs(self):
+        port = self.server.server_address[1]
+        argv = sys.argv
+        sys.argv = ["bridge_server.py", "--port", str(port)]
+        self.addCleanup(setattr, sys, "argv", argv)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = bridge_server.run()
+        self.assertEqual(code, 0)
+        self.assertIn("already running", out.getvalue())
+
+    def test_logging_without_console(self):
+        log = os.path.join(self.tmp.name, "bridge.log")
+        saved = sys.stdout, sys.stderr, bridge_server.DEFAULT_LOG_FILE
+        bridge_server.DEFAULT_LOG_FILE = log
+
+        def restore():
+            for stream in (sys.stdout, sys.stderr):
+                if stream not in saved:
+                    stream.close()
+            sys.stdout, sys.stderr, bridge_server.DEFAULT_LOG_FILE = saved
+
+        self.addCleanup(restore)
+        self.assertIsNone(bridge_server.setup_logging())     # console present: untouched
+        sys.stdout = sys.stderr = None                       # pythonw / Windows log-in
+        self.assertEqual(bridge_server.setup_logging(), log)
+        sys.stderr.write("request log line\n")
+        with open(log, encoding="utf-8") as fh:
+            self.assertIn("request log line", fh.read())
+
+    def test_requests_survive_a_dead_console(self):
+        class DeadPipe(io.StringIO):
+            def write(self, s):
+                raise BrokenPipeError(32, "Broken pipe")
+
+        saved = sys.stderr
+        sys.stderr = DeadPipe()            # e.g. the console window/pipe went away
+        self.addCleanup(setattr, sys, "stderr", saved)
+        original = bridge_server.find_matlab
+        bridge_server.find_matlab = lambda max_age=30.0: None
+        self.addCleanup(setattr, bridge_server, "find_matlab", original)
+        code, res = self.post("/api/matlab/launch", {"target": "live"})   # a logged request
+        self.assertEqual((code, res["status"]), (200, "error"))
+        with urllib.request.urlopen(self.base + "/", timeout=5) as resp:  # logged static file
+            self.assertEqual(resp.status, 200)
+
     def test_find_matlab_prefers_newest_release(self):
         paths = [r"C:\Program Files\MATLAB\R2024b\bin\matlab.exe",
                  r"C:\Program Files\MATLAB\R2026b\bin\matlab.exe",
                  r"C:\Program Files\MATLAB\R2026a\bin\matlab.exe"]
         self.assertEqual(sorted(paths, key=bridge_server._release_key)[-1], paths[1])
+
+
+def free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 if __name__ == "__main__":

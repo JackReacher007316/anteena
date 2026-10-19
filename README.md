@@ -1,8 +1,9 @@
 # ML-Based Antenna Design & Optimization Framework
 ### Integrating CST Studio Suite + MATLAB + Python ML
 
-**Live website:** https://jackreacher007316.github.io/anteena/ (the dashboard, hosted on GitHub Pages).
-To link it to MATLAB on your PC, see [Live link](#5-live-link-web-dashboard---matlab-verification).
+**Live website:** https://jackreacher007316.github.io/anteena/ - the dashboard, hosted on GitHub
+Pages and online 24/7 (it does not depend on your PC). To connect it to MATLAB on your PC, run
+`install_live_link.bat` once - see [Live link](#5-live-link-web-dashboard---matlab-verification).
 
 ## Project Overview
 
@@ -52,18 +53,23 @@ anteena/
 │   ├── index.html
 │   ├── style.css
 │   ├── app.js
-│   └── bridge_server.py         # Serves the dashboard + live link to MATLAB
+│   ├── bridge_server.py         # Serves the dashboard + live link to MATLAB
+│   └── live_link_setup.py       # install / start / stop / status / uninstall of the link
 ├── matlab/  (live link)
 │   ├── live_verify.m            # Live window: dashboard inputs -> MATLAB verification
 │   ├── antenna_model.m          # MATLAB implementation of all 30 dashboard EM engines
 │   ├── antenna_s11_curve.m      # S11 trace (same model as the dashboard chart)
 │   ├── verify_web_input.m       # Dashboard vs MATLAB comparison (PASS / FAIL report)
+│   ├── live_link_check.m        # One-shot health check (run by the installer)
 │   └── test_antenna_model.m     # Self-test: MATLAB == dashboard for all 30 antennas
 ├── tests/
 │   ├── test_bridge_server.py    # python -m unittest discover -s tests
+│   ├── test_live_link_setup.py
 │   ├── gen_engine_reference.js  # node tests/gen_engine_reference.js
 │   └── fixtures/engine_reference.json
-├── start_live_verification.bat  # 1 double-click: bridge + dashboard + MATLAB live_verify
+├── install_live_link.bat        # ONE-TIME: keeps MATLAB connected to the website
+├── uninstall_live_link.bat      # undo install_live_link.bat
+├── start_live_verification.bat  # 1 double-click: bridge + website + MATLAB live_verify
 └── docs/
     └── project_report.md
 ```
@@ -135,8 +141,24 @@ Whatever you set in the dashboard (antenna type, ML model, every slider) shows u
 MATLAB immediately. MATLAB re-computes the design on its own and checks every number
 the dashboard displays, then sends its verdict back to the dashboard.
 
-**Windows, one double-click:** `start_live_verification.bat`. It starts the bridge,
-opens the dashboard and starts MATLAB with `live_verify`.
+**Windows - one-time setup, then it stays connected:** double-click
+`install_live_link.bat` (needs Python 3). It:
+1. starts the bridge now and at every Windows log-in, in the background - no window,
+   no admin rights (registry `HKCU\...\Run`, value `AnteenaMatlabBridge`);
+2. runs a one-time check inside MATLAB (`live_link_check`: MATLAB reproduces all 30
+   engines, MATLAB reaches the bridge) and adds a small marked block to MATLAB's
+   `startup.m`, so every MATLAB session opens the live link by itself;
+3. opens the website, which finds the bridge and starts MATLAB with the live window.
+
+After that you only open the website. When it finds the bridge and MATLAB is not linked,
+it starts MATLAB once (switch this off with the checkbox in the MATLAB panel, F4).
+Closing the MATLAB window only hides it: the link keeps running, and **CONNECT MATLAB**
+(or `live_verify` in MATLAB) brings the window back. `live_verify stop` ends the link.
+Undo everything: `uninstall_live_link.bat`. Check what runs:
+`python dashboard/live_link_setup.py status`.
+
+**Without the setup:** `start_live_verification.bat` starts the bridge (if it is not
+running yet), opens the website and asks the bridge to start MATLAB with `live_verify`.
 
 **Manual start:**
 ```bash
@@ -152,13 +174,17 @@ environment variable first.
 
 **From the public website** (https://jackreacher007316.github.io/anteena/): MATLAB still
 runs on your PC, so the hosted page talks to the bridge on your own machine.
-1. Start the bridge on your PC: `start_live_verification.bat`, or
-   `python dashboard/bridge_server.py`.
+1. The bridge must run on your PC: `install_live_link.bat` (once), or
+   `start_live_verification.bat`, or `python dashboard/bridge_server.py`.
+   No copy of the repository on that PC? The MATLAB panel (F4) has a **download ZIP**
+   link for the PC connector.
 2. Open the website and click **CONNECT MATLAB (LIVE)**. If the browser asks to allow
-   access to devices on your local network, click **Allow**.
+   access to devices on your local network, click **Allow**. Blocked it by mistake? Click
+   the icon left of the address bar > Site settings > allow local network access.
 3. The page finds the bridge at `http://127.0.0.1:8000`, asks it to start MATLAB, and
    then works exactly like the local dashboard. It remembers the bridge, so the next
-   visit connects without a click.
+   visit connects without a click. An old bridge (from before the live link) is flagged
+   as `OLD BRIDGE ON THIS PC - UPDATE IT`.
 
 Other port: open the site with `?bridge=8080` (or `?bridge=http://127.0.0.1:8080`).
 Forget the remembered bridge: `?bridge=off`. Only your own PC or local network is
@@ -195,7 +221,11 @@ Bridge API (used by the dashboard and MATLAB; POST bodies must be `application/j
 - `GET /api/matlab/input?since=<seq>&client=matlab`: MATLAB polls for new input.
 - `POST /api/matlab/result`: MATLAB posts its verification.
 - `GET /api/status`: the real link state.
-- `POST /api/matlab/launch`: starts MATLAB with `live_verify`.
+- `POST /api/matlab/launch`: starts MATLAB with `live_verify` - once: while MATLAB is
+  starting it answers `starting`, and when MATLAB is already linked it answers
+  `already_connected` and asks `live_verify` to bring its window back.
+- One bridge per port: a second copy notices the running one and exits. Without a console
+  (pythonw) the bridge logs to `data/bridge.log`.
 
 Tests: `python -m unittest discover -s tests`. After changing an engine formula, re-run
 `node tests/gen_engine_reference.js` and `test_antenna_model` in MATLAB.
