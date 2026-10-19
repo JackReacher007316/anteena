@@ -2442,3 +2442,148 @@ body {
   .ant-key-label { font-size: 9px; }
   .encyclopedia-body { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MATLAB LIVE LINK PANEL (MATLAB modal) - filled by app.js
+   ═══════════════════════════════════════════════════════════ */
+.mlink-panel {
+  background: #141722;
+  border: 1px solid #334155;
+  padding: 14px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+.mlink-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.mlink-led {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #666;
+  flex: 0 0 auto;
+}
+.mlink-title {
+  color: #e2e8f0;
+  font-weight: bold;
+  font-size: 0.95rem;
+}
+.mlink-state {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+.mlink-meta {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+}
+.mlink-summary {
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+.mlink-sub {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+.mlink-warn {
+  margin-top: 4px;
+  color: #fcd34d;
+  font-size: 0.78rem;
+}
+.mlink-table-wrap {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #1f2937;
+}
+.mlink-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+.mlink-table th {
+  position: sticky;
+  top: 0;
+  background: #0b0e15;
+  color: #00d4ff;
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid #334155;
+}
+.mlink-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #1a2130;
+  color: #cbd5e1;
+}
+.mlink-table tr.mlink-pass .mlink-verdict { color: #00ff88; font-weight: bold; }
+.mlink-table tr.mlink-fail { background: rgba(255, 85, 85, 0.12); }
+.mlink-table tr.mlink-fail .mlink-verdict { color: #ff5555; font-weight: bold; }
+.mlink-empty {
+  color: #94a3b8;
+  text-align: center;
+  padding: 10px;
+}
+.mlink-help {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: #fcd34d;
+}
+.mlink-help code {
+  background: #08090d;
+  border: 1px dashed #f59e0b;
+  padding: 2px 6px;
+  color: #f59e0b;
+  border-radius: 3px;
+}
+.mlink-help a {
+  color: #38bdf8;
+}
+.mlink-steps {
+  margin: 6px 0 6px 18px;
+  padding: 0;
+  line-height: 1.55;
+}
+.mlink-auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.mlink-auto input {
+  accent-color: #00ff88;
+}
+.mlink-oneliner {
+  margin: 8px 0 10px 0;
+  padding: 10px;
+  background: #0b1220;
+  border: 1px solid #38bdf8;
+  border-radius: 4px;
+  color: #cbd5e1;
+}
+.mlink-oneliner code {
+  display: block;
+  margin: 8px 0;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+  color: #7dd3fc;
+  border-color: #38bdf8;
+}
+.mlink-oneliner kbd {
+  padding: 1px 5px;
+  border: 1px solid #64748b;
+  border-radius: 3px;
+  background: #1e293b;
+  font-size: 0.75rem;
+}

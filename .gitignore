@@ -24,3 +24,10 @@ Desktop.ini
 # Scratch/temp files
 scratch_*.ps1
 scratch_*.py
+
+# Atomic-write temp files of the dashboard bridge
+data/.user_input.*.tmp
+data/bridge.log*
+data/live_link_install.json
+data/live_link_check.json
+data/live_link_check.log
