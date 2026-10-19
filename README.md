@@ -1,6 +1,9 @@
 # ML-Based Antenna Design & Optimization Framework
 ### Integrating CST Studio Suite + MATLAB + Python ML
 
+**Live website:** https://jackreacher007316.github.io/anteena/ (the dashboard, hosted on GitHub Pages).
+To link it to MATLAB on your PC, see [Live link](#5-live-link-web-dashboard---matlab-verification).
+
 ## Project Overview
 
 This project implements a Machine Learning-based surrogate modeling framework for antenna design,
@@ -12,6 +15,8 @@ with fast ML models, enabling rapid antenna design across multiple antenna types
 ```
 anteena/
 ├── README.md
+├── index.html                   # Public website entry (GitHub Pages) -> dashboard/
+├── .nojekyll                    # GitHub Pages: serve the files as they are
 ├── data/
 │   ├── raw/                     # Raw CST parameter sweep exports
 │   ├── processed/               # Cleaned, normalized datasets
@@ -145,6 +150,22 @@ You can also click **CONNECT MATLAB (LIVE)** in the dashboard, which asks the br
 start MATLAB for you. If MATLAB is not in a standard location, set the `MATLAB_EXE`
 environment variable first.
 
+**From the public website** (https://jackreacher007316.github.io/anteena/): MATLAB still
+runs on your PC, so the hosted page talks to the bridge on your own machine.
+1. Start the bridge on your PC: `start_live_verification.bat`, or
+   `python dashboard/bridge_server.py`.
+2. Open the website and click **CONNECT MATLAB (LIVE)**. If the browser asks to allow
+   access to devices on your local network, click **Allow**.
+3. The page finds the bridge at `http://127.0.0.1:8000`, asks it to start MATLAB, and
+   then works exactly like the local dashboard. It remembers the bridge, so the next
+   visit connects without a click.
+
+Other port: open the site with `?bridge=8080` (or `?bridge=http://127.0.0.1:8080`).
+Forget the remembered bridge: `?bridge=off`. Only your own PC or local network is
+accepted as a bridge address. The bridge answers browser requests only from the public
+website and from `http://localhost:<port>` pages. To allow another site, run
+`--allow-origin https://example.org` or set `BRIDGE_ALLOW_ORIGINS`.
+
 **What you get in MATLAB**
 - **A window** called "Web Dashboard -> MATLAB Live Verification". It shows:
   - the received inputs;
@@ -169,7 +190,7 @@ environment variable first.
 
 If the bridge is not running, `live_verify` watches `data/user_input.json` instead.
 
-Bridge API (used by the dashboard and MATLAB):
+Bridge API (used by the dashboard and MATLAB; POST bodies must be `application/json`):
 - `POST /api/matlab/input`: the dashboard pushes an input.
 - `GET /api/matlab/input?since=<seq>&client=matlab`: MATLAB polls for new input.
 - `POST /api/matlab/result`: MATLAB posts its verification.

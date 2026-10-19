@@ -4999,7 +4999,7 @@ function initMatlabModal() {
   // 1-Click: start MATLAB with the live link (live_verify)
   const BTN_LABEL = '🚀 CONNECT MATLAB (LIVE)';
   const BTN_AUTO_LABEL = '⚡ CLICK HERE: CONNECT MATLAB LIVE (OPENS live_verify)';
-  const handleLaunch = () => {
+  const handleLaunch = async () => {
     playRetroSound('sweep');
     const btn = document.getElementById('btn-launch-matlab-desktop');
     const btnAuto = document.getElementById('btn-run-matlab-auto');
@@ -5016,12 +5016,32 @@ function initMatlabModal() {
       if (btn) btn.textContent = BTN_LABEL;
       if (btnAuto) btnAuto.textContent = BTN_AUTO_LABEL;
     }, delay);
+    const bridgeMissing = () => (MatlabLink.sameOrigin
+      ? '⚠ Bridge server not reachable. Start it with:  python dashboard/bridge_server.py'
+      : `⚠ No bridge found on this PC (${MatlabLink.localUrl}). Start it first: double-click `
+        + 'start_live_verification.bat (or run: python dashboard/bridge_server.py), then click CONNECT again. '
+        + 'If the browser asks to allow access to devices on your local network, click Allow.');
+
+    if (btn) btn.textContent = '⏳ CONNECTING...';
+    if (btnAuto) btnAuto.textContent = '⏳ LOOKING FOR THE BRIDGE...';
+    showFeedback('🔎 Looking for the bridge ...', true);
+
+    // On the public website the bridge runs on this PC: look there as well.
+    enableLocalBridge();
+    const base = await findBridgeNow();
+    if (base === null) {
+      if (btn) btn.textContent = '⚠ BRIDGE NOT FOUND';
+      if (btnAuto) btnAuto.textContent = '⚠ BRIDGE NOT FOUND - SEE BELOW';
+      showFeedback(bridgeMissing(), false);
+      resetButtons(4000);
+      return;
+    }
 
     if (btn) btn.textContent = '⏳ STARTING MATLAB...';
     if (btnAuto) btnAuto.textContent = '⏳ STARTING MATLAB LIVE LINK...';
     showFeedback('🚀 Asking the bridge to start MATLAB with live_verify ...', true);
 
-    fetch('/api/matlab/launch', {
+    fetch(bridgeUrl('/api/matlab/launch'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target: 'live' }),
@@ -5033,7 +5053,7 @@ function initMatlabModal() {
           if (btn) btn.textContent = done;
           if (btnAuto) btnAuto.textContent = done;
           showFeedback(`✅ ${res.message}`, true);
-          setTimeout(pollMatlabStatus, 1500);
+          setTimeout(() => pollMatlabStatus(), 1500);
         } else {
           if (btn) btn.textContent = '⚠ MATLAB NOT STARTED';
           if (btnAuto) btnAuto.textContent = '⚠ MATLAB NOT STARTED - SEE BELOW';
@@ -5042,7 +5062,7 @@ function initMatlabModal() {
         resetButtons(4000);
       })
       .catch(() => {
-        showFeedback('⚠ Bridge server not reachable. Start it with:  python dashboard/bridge_server.py', false);
+        showFeedback(bridgeMissing(), false);
         resetButtons(2500);
       });
   };
@@ -5094,18 +5114,164 @@ function initMatlabModal() {
 // bridge, re-computes the antenna independently (matlab/antenna_model.m),
 // verifies the numbers shown here and posts its verdict back. The status
 // strip and the MATLAB modal show MATLAB's *real* state.
+//
+// Where is the bridge?
+//  * Page served by bridge_server.py (http://localhost:8000, preview links):
+//    that same server, relative URLs.
+//  * Public website (GitHub Pages) or any other static server: MATLAB runs on
+//    the visitor's own PC, so the page talks to the bridge there
+//    (http://127.0.0.1:8000). It only starts looking after CONNECT MATLAB is
+//    clicked - the browser may ask to allow local-network access - and then
+//    remembers it. Override: ?bridge=http://127.0.0.1:8080  (?bridge=off forgets).
+
+const BRIDGE_LOCAL_URL = 'http://127.0.0.1:8000';
+const BRIDGE_STORE_KEY = 'anteena.matlabBridge';
 
 const MatlabLink = {
   pending: null,      // newest payload waiting to be sent
+  lastPayload: null,  // newest payload ever queued (re-sent when a bridge is (re)found)
   timer: null,
   lastSentAt: 0,
   sentSeq: 0,         // sequence number the bridge gave our latest input
   status: null,       // last /api/status reply (null = bridge unreachable)
   monitor: null,
   matlabDir: null,
+  base: null,         // bridge URL prefix: '' = this page's own server, null = none found
+  sameOrigin: true,   // false once this page's server proved to be a plain web server
+  localUrl: BRIDGE_LOCAL_URL,
+  localOptIn: false,  // also look on this PC (CONNECT clicked, remembered, or ?bridge=)
+  explicit: false,    // localUrl came from ?bridge=
+  polling: null,      // in-flight status poll (Promise)
+  offlineTicks: 0,
   THROTTLE_MS: 120,   // max ~8 inputs/s while dragging a slider
   POLL_MS: 1500,
+  PROBE_TIMEOUT_MS: 4000,
 };
+
+function readStoredBridge() {
+  try { return localStorage.getItem(BRIDGE_STORE_KEY); } catch (e) { return null; }
+}
+
+function storeBridge(url) {
+  try {
+    if (url) localStorage.setItem(BRIDGE_STORE_KEY, url);
+    else localStorage.removeItem(BRIDGE_STORE_KEY);
+  } catch (e) { /* storage disabled - the bridge is just not remembered */ }
+}
+
+// '8080' | '127.0.0.1:8080' | 'http://host:port/anything' -> 'http://host:port'.
+// The bridge runs on your own PC (or a machine on your network), never on the
+// internet - so a crafted ?bridge= link cannot point the page somewhere else.
+function normalizeBridgeUrl(text) {
+  let s = String(text || '').trim();
+  if (!s) return null;
+  if (/^\d{1,5}$/.test(s)) s = `127.0.0.1:${s}`;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = `http://${s}`;
+  let u;
+  try { u = new URL(s); } catch (e) { return null; }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  const local = host === 'localhost' || host.endsWith('.localhost') || host === '::1'
+    || /^(127|10)(\.\d{1,3}){3}$/.test(host) || /^192\.168(\.\d{1,3}){2}$/.test(host)
+    || /^172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}$/.test(host);
+  return local ? u.origin : null;
+}
+
+function initBridgeConfig() {
+  const L = MatlabLink;
+  // GitHub Pages (the public website) only serves files - no bridge behind it.
+  L.sameOrigin = /^https?:$/.test(window.location.protocol)
+    && !/(^|\.)github\.io$/i.test(window.location.hostname);
+  let q = null;
+  try { q = new URLSearchParams(window.location.search).get('bridge'); } catch (e) { q = null; }
+  if (q !== null && /^(off|none|no|0|false)$/i.test(q.trim())) {
+    storeBridge(null);
+    return;
+  }
+  const fromQuery = q !== null ? normalizeBridgeUrl(q) : null;
+  const saved = fromQuery ? null : normalizeBridgeUrl(readStoredBridge());
+  if (fromQuery || saved) {
+    L.localUrl = fromQuery || saved;
+    L.localOptIn = true;
+    L.explicit = !!fromQuery;
+    if (fromQuery) storeBridge(fromQuery);
+  }
+}
+
+// Bridges to try, in order ('' = this page's own server). A page served by a
+// bridge only ever uses that bridge; the one "on this PC" is for pages from a
+// plain web server (the public website) or an explicit ?bridge=.
+function bridgeCandidates() {
+  const L = MatlabLink;
+  const own = window.location.origin;
+  const useLocal = L.localOptIn && (L.explicit || !L.sameOrigin);
+  const local = useLocal ? (L.localUrl === own ? '' : L.localUrl) : null;
+  const list = [];
+  if (local !== null && L.explicit) list.push(local);
+  if (L.sameOrigin) list.push('');
+  if (local !== null && !L.explicit) list.push(local);
+  return [...new Set(list)];
+}
+
+function bridgeUrl(path) {
+  return `${MatlabLink.base || ''}${path}`;
+}
+
+function bridgeLabel() {
+  const L = MatlabLink;
+  if (L.base === null) return null;
+  return L.base === '' ? 'this server' : `${L.base} (this PC)`;
+}
+
+function fetchWithTimeout(url, options, ms) {
+  if (typeof AbortController === 'undefined') return fetch(url, options);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
+function linkError(message, notBridge) {
+  const err = new Error(message);
+  err.notBridge = notBridge;  // true = a web server answered, but it is no bridge
+  return err;
+}
+
+function probeBridge(base, timeoutMs) {
+  return fetchWithTimeout(`${base}/api/status`, { cache: 'no-store' }, timeoutMs || MatlabLink.PROBE_TIMEOUT_MS)
+    .then(r => {
+      if (r.status === 404 || r.status === 405) throw linkError(`HTTP ${r.status}`, true);
+      if (!r.ok) throw linkError(`HTTP ${r.status}`, false);
+      return r.json().catch(() => { throw linkError('reply is not JSON', true); });
+    })
+    .then(st => {
+      if (!st || typeof st !== 'object' || !('matlab_connected' in st)) throw linkError('not a bridge', true);
+      return st;
+    });
+}
+
+// A bridge answered (first time, or again after it was gone).
+function onBridgeFound(base) {
+  const L = MatlabLink;
+  if (base !== '') storeBridge(L.localUrl);  // remember the bridge on this PC for the next visit
+  // A (re)started bridge does not know what this page shows - send it now.
+  if (!L.pending && L.lastPayload) L.pending = L.lastPayload;
+  if (L.pending && !L.timer) flushMatlabSync();
+}
+
+// The user asked for MATLAB: from now on also look for the bridge on this PC.
+function enableLocalBridge() {
+  MatlabLink.localOptIn = true;
+}
+
+async function findBridgeNow() {
+  const L = MatlabLink;
+  if (L.polling) {
+    try { await L.polling; } catch (e) { /* reported by the poll itself */ }
+  }
+  // Generous timeout: the browser may be showing its local-network permission prompt.
+  if (L.base === null) await pollMatlabStatus(20000);
+  return L.base;
+}
 
 function buildMatlabPayload(config, sim, shown) {
   const physics = {};
@@ -5130,19 +5296,22 @@ function buildMatlabPayload(config, sim, shown) {
 }
 
 function queueMatlabSync(payload) {
-  MatlabLink.pending = payload;   // always keep only the newest input
-  if (MatlabLink.timer) return;
-  const wait = Math.max(0, MatlabLink.THROTTLE_MS - (Date.now() - MatlabLink.lastSentAt));
-  MatlabLink.timer = setTimeout(flushMatlabSync, wait);
+  const L = MatlabLink;
+  L.pending = payload;   // always keep only the newest input
+  L.lastPayload = payload;
+  if (L.timer || L.base === null) return;  // no bridge yet: sent as soon as one is found
+  const wait = Math.max(0, L.THROTTLE_MS - (Date.now() - L.lastSentAt));
+  L.timer = setTimeout(flushMatlabSync, wait);
 }
 
 function flushMatlabSync() {
   MatlabLink.timer = null;
+  if (MatlabLink.base === null) return;  // keep it pending until a bridge is found
   const payload = MatlabLink.pending;
   MatlabLink.pending = null;
   if (!payload) return;
   MatlabLink.lastSentAt = Date.now();
-  fetch('/api/matlab/input', {
+  fetch(bridgeUrl('/api/matlab/input'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -5159,27 +5328,60 @@ function flushMatlabSync() {
 
 function startMatlabLinkMonitor() {
   if (MatlabLink.monitor) return;
+  initBridgeConfig();
   pollMatlabStatus();
-  MatlabLink.monitor = setInterval(pollMatlabStatus, MatlabLink.POLL_MS);
+  MatlabLink.monitor = setInterval(() => {
+    // No bridge: look again every ~4.5 s instead of every tick.
+    if (MatlabLink.base === null && (MatlabLink.offlineTicks++ % 3) !== 0) return;
+    pollMatlabStatus();
+  }, MatlabLink.POLL_MS);
 }
 
-function pollMatlabStatus() {
-  fetch('/api/status', { cache: 'no-store' })
-    .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-    .then(st => {
-      MatlabLink.status = st;
-      if (st.matlab_dir) MatlabLink.matlabDir = st.matlab_dir;
-      renderMatlabLink();
-    })
-    .catch(() => {
-      MatlabLink.status = null;
-      renderMatlabLink();
-    });
+// Poll the known bridge, or look for one. Never runs twice in parallel.
+function pollMatlabStatus(timeoutMs) {
+  const L = MatlabLink;
+  if (L.polling) return L.polling;
+  L.polling = (async () => {
+    const list = L.base !== null ? [L.base] : bridgeCandidates();
+    for (const base of list) {
+      try {
+        const st = await probeBridge(base, timeoutMs);
+        const found = L.base !== base;
+        L.base = base;
+        L.status = st;
+        L.offlineTicks = 0;
+        if (st.matlab_dir) L.matlabDir = st.matlab_dir;
+        if (found) onBridgeFound(base);
+        renderMatlabLink();
+        return st;
+      } catch (err) {
+        // This page comes from a plain web server (e.g. the public website).
+        if (base === '' && err.notBridge) L.sameOrigin = false;
+      }
+    }
+    L.base = null;
+    L.status = null;
+    renderMatlabLink();
+    return null;
+  })().finally(() => { L.polling = null; });
+  return L.polling;
 }
 
 function matlabLinkState() {
-  const st = MatlabLink.status;
+  const L = MatlabLink;
+  const st = L.status;
   if (!st) {
+    if (!L.sameOrigin && !L.localOptIn) {
+      return { color: '#ffaa00', text: 'OFFLINE - CLICK CONNECT MATLAB',
+               detail: 'Public website: MATLAB runs on your PC. Start the bridge there (double-click '
+                     + 'start_live_verification.bat, or run: python dashboard/bridge_server.py), then click '
+                     + 'CONNECT MATLAB (LIVE).' };
+    }
+    if (!L.sameOrigin) {
+      return { color: '#ff5555', text: 'BRIDGE NOT FOUND ON THIS PC',
+               detail: `No bridge at ${L.localUrl}. Start it on this PC: double-click start_live_verification.bat, `
+                     + 'or run: python dashboard/bridge_server.py. This page connects by itself once it runs.' };
+    }
     return { color: '#ff5555', text: 'BRIDGE OFFLINE',
              detail: 'Bridge server not reachable - start it with: python dashboard/bridge_server.py' };
   }
@@ -5248,6 +5450,7 @@ function renderMatlabLink() {
   const mRows = document.getElementById('mlink-rows');
   const mHelp = document.getElementById('mlink-help');
   const mCmd = document.getElementById('mlink-cmd');
+  const mBridgeHelp = document.getElementById('mlink-bridge-help');
   const modalStatus = document.getElementById('matlab-modal-status');
   const dirPath = document.getElementById('matlab-dir-path');
   if (mLed) { mLed.style.background = state.color; mLed.style.boxShadow = `0 0 8px ${state.color}`; }
@@ -5255,7 +5458,8 @@ function renderMatlabLink() {
   if (modalStatus) modalStatus.textContent = `MATLAB live link | ${state.text}`;
   if (dirPath && MatlabLink.matlabDir) dirPath.textContent = MatlabLink.matlabDir;
   if (mCmd && MatlabLink.matlabDir) mCmd.textContent = `cd('${MatlabLink.matlabDir.replace(/'/g, "''")}'); live_verify`;
-  if (mHelp) mHelp.style.display = st && st.matlab_connected ? 'none' : 'block';
+  if (mHelp) mHelp.style.display = st && !st.matlab_connected ? 'block' : 'none';
+  if (mBridgeHelp) mBridgeHelp.style.display = st ? 'none' : 'block';
 
   if (mMeta) {
     const parts = [];
@@ -5264,6 +5468,7 @@ function renderMatlabLink() {
       parts.push(`Verified by MATLAB: ${st.matlab_seq != null ? '#' + st.matlab_seq : '—'}`);
       if (st.matlab_last_seen_s != null) parts.push(`last MATLAB poll ${st.matlab_last_seen_s.toFixed(1)} s ago`);
       if (st.matlab_version) parts.push(st.matlab_version);
+      if (MatlabLink.base) parts.push(`bridge: ${bridgeLabel()}`);
     } else {
       parts.push(state.detail);
     }

@@ -18,10 +18,21 @@ What it does
 The latest input is also written (atomically) to data/user_input.json so MATLAB
 can fall back to watching that file when the bridge is not reachable.
 
+Public website
+--------------
+The dashboard is also published on GitHub Pages (PUBLIC_SITE_ORIGIN). That page
+cannot start programs on your PC; it talks to this bridge on your own machine
+(http://127.0.0.1:8000) instead. The API therefore answers CORS requests from
+that origin and from dashboards served on another local port - and from nobody
+else unless you add origins with --allow-origin / BRIDGE_ALLOW_ORIGINS.
+POST requests must be application/json, so other websites cannot fire
+"simple" cross-site requests (e.g. a hidden form) at the launch endpoint.
+
 Usage
 -----
     python dashboard/bridge_server.py            # http://localhost:8000
     python dashboard/bridge_server.py --port 8080 --host 127.0.0.1
+    python dashboard/bridge_server.py --allow-origin https://example.org
 
 Only the Python standard library is used.
 """
@@ -52,6 +63,18 @@ MATLAB_TIMEOUT_S = 3.0
 # Upper bound for request bodies (inputs/results are a few KB).
 MAX_BODY_BYTES = 1_000_000
 
+# Browser origins allowed to call the API cross-origin, in addition to the
+# dashboard served by this bridge itself (same origin needs no CORS):
+#  * the public website (GitHub Pages) of this repository,
+#  * dashboards opened from another local port (http://localhost:5500, ...).
+PUBLIC_SITE_ORIGIN = "https://jackreacher007316.github.io"
+PUBLIC_SITE_URL = PUBLIC_SITE_ORIGIN + "/anteena/"
+DEFAULT_ALLOWED_ORIGINS = (PUBLIC_SITE_ORIGIN,)
+LOOPBACK_ORIGIN_RE = re.compile(r"^http://(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$")
+# POST endpoints; they only accept Content-Type: application/json.
+API_POST_PATHS = ("/api/matlab/input", "/api/matlab/simulate",
+                  "/api/matlab/result", "/api/matlab/launch")
+
 # MATLAB commands the launch endpoint may run (target -> MATLAB command).
 LAUNCH_TARGETS = {
     "live": "live_verify",
@@ -64,6 +87,17 @@ def _release_key(path):
     """Sort key so that R2026b > R2026a > R2025b ... (newest MATLAB last)."""
     m = re.search(r"R(\d{4})([ab])", path)
     return (int(m.group(1)), m.group(2)) if m else (0, "")
+
+
+def normalize_origin(origin):
+    """'https://Example.org/' -> 'https://example.org' ('*' stays '*')."""
+    origin = str(origin).strip().rstrip("/")
+    return origin if origin == "*" else origin.lower()
+
+
+def parse_origin_list(text):
+    """Origins from an env var: separated by commas and/or whitespace."""
+    return [normalize_origin(o) for o in re.split(r"[,\s]+", text or "") if o.strip()]
 
 
 _MATLAB_CACHE = {"at": 0.0, "exe": None}
@@ -260,6 +294,7 @@ class LinkState:
 
 class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
     state = None          # LinkState, set in make_server()
+    allowed_origins = frozenset(DEFAULT_ALLOWED_ORIGINS)  # see make_server()
     quiet_paths = ("/api/status", "/api/matlab/input", "/api/matlab/result",
                    "/api/matlab/simulate", "/api/matlab/ping")
 
@@ -274,8 +309,21 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     # -- routing ------------------------------------------------------------
     def do_OPTIONS(self):
+        """CORS preflight (the public website POSTs JSON to this bridge)."""
+        origin = self.headers.get("Origin")
+        if not self.origin_allowed(origin):
+            self.send_response(403)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(204)
         self._cors_headers()
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+        # Chrome's Private Network Access preflight (public site -> 127.0.0.1).
+        if self.headers.get("Access-Control-Request-Private-Network", "").lower() == "true":
+            self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -292,6 +340,12 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path in API_POST_PATHS and not self.is_json_request():
+            # Browsers send JSON only after a CORS preflight, which unknown
+            # websites fail; plain-text/form posts are never accepted.
+            self.send_json({"status": "error",
+                            "message": "Content-Type must be application/json"}, 415)
+            return
         if path in ("/api/matlab/input", "/api/matlab/simulate"):
             self.handle_input()
         elif path == "/api/matlab/result":
@@ -316,10 +370,23 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
             raise ValueError("JSON object expected")
         return body
 
+    def is_json_request(self):
+        ctype = self.headers.get("Content-Type", "")
+        return ctype.split(";", 1)[0].strip().lower() == "application/json"
+
+    def origin_allowed(self, origin):
+        if not origin:
+            return False
+        origin = normalize_origin(origin)
+        return ("*" in self.allowed_origins or origin in self.allowed_origins
+                or bool(LOOPBACK_ORIGIN_RE.match(origin)))
+
     def _cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        """Allow the public website / local dashboards to read API replies."""
+        origin = self.headers.get("Origin")
+        if self.origin_allowed(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Vary", "Origin")
 
     def send_json(self, data, code=200):
         body = json.dumps(data).encode("utf-8")
@@ -419,8 +486,11 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
                                    "a few seconds and then follows the dashboard live."})
 
 
-def make_server(host="0.0.0.0", port=8000, data_file=DEFAULT_DATA_FILE):
-    handler = type("Handler", (BridgeRequestHandler,), {"state": LinkState(data_file)})
+def make_server(host="0.0.0.0", port=8000, data_file=DEFAULT_DATA_FILE, allow_origins=()):
+    """allow_origins: extra browser origins for the API ('*' = any website)."""
+    origins = frozenset(DEFAULT_ALLOWED_ORIGINS) | {normalize_origin(o) for o in allow_origins or ()}
+    handler = type("Handler", (BridgeRequestHandler,),
+                   {"state": LinkState(data_file), "allowed_origins": origins})
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     server = http.server.ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
@@ -433,13 +503,19 @@ def run():
     ap.add_argument("--port", type=int, default=int(os.environ.get("BRIDGE_PORT", "8000")))
     ap.add_argument("--data-file", default=os.environ.get("BRIDGE_DATA_FILE", DEFAULT_DATA_FILE),
                     help="where the latest dashboard input is mirrored as JSON")
+    ap.add_argument("--allow-origin", action="append", metavar="ORIGIN",
+                    default=parse_origin_list(os.environ.get("BRIDGE_ALLOW_ORIGINS", "")),
+                    help="extra website allowed to use the bridge from the browser "
+                         "(repeatable; '*' = any). Always allowed: "
+                         f"{PUBLIC_SITE_ORIGIN} and http://localhost:<port>")
     args = ap.parse_args()
 
-    server = make_server(args.host, args.port, args.data_file)
+    server = make_server(args.host, args.port, args.data_file, args.allow_origin)
     exe = find_matlab()
     print("=" * 70)
     print(f"  Dashboard <-> MATLAB live bridge on http://localhost:{args.port}")
     print(f"  Open the dashboard : http://localhost:{args.port}/")
+    print(f"  or the website     : {PUBLIC_SITE_URL}  (click CONNECT MATLAB)")
     print(f"  In MATLAB run      : cd('{MATLAB_DIR}'); live_verify")
     print(f"  MATLAB executable  : {exe or 'not found (set MATLAB_EXE to enable 1-click launch)'}")
     print(f"  Input mirror file  : {args.data_file}")

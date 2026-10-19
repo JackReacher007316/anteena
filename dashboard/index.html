@@ -1029,6 +1029,7 @@
           <p style="margin: 8px 0 0 0; font-size: 0.8rem; color: #94a3b8;">
             Starts MATLAB with the live verification window (or reuses the one already running). Keep it open:
             every antenna, model and slider change you make here appears in MATLAB instantly and is verified there.
+            On the public website, start the bridge on your PC first (<code>start_live_verification.bat</code>).
           </p>
         </div>
 
@@ -1057,6 +1058,14 @@
           <div class="mlink-help" id="mlink-help">
             MATLAB not connected? In the MATLAB Command Window run:
             <code id="mlink-cmd">cd('&lt;repo&gt;/matlab'); live_verify</code>
+          </div>
+          <div class="mlink-help" id="mlink-bridge-help" style="display: none;">
+            <strong>No bridge?</strong> MATLAB runs on your PC and is reached through a small Python bridge there.
+            Double-click <code>start_live_verification.bat</code> (bridge + dashboard + MATLAB), or run
+            <code>python dashboard/bridge_server.py</code>. The public website
+            (<a href="https://jackreacher007316.github.io/anteena/" target="_blank" rel="noopener">jackreacher007316.github.io/anteena</a>)
+            connects to that bridge when you click <strong>CONNECT MATLAB</strong>; allow local-network access if the
+            browser asks.
           </div>
         </div>
 

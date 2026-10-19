@@ -50,15 +50,27 @@ class BridgeTestCase(unittest.TestCase):
         with urllib.request.urlopen(self.base + path, timeout=5) as resp:
             return resp.status, json.loads(resp.read())
 
-    def post(self, path, payload=None, raw=None):
+    def post(self, path, payload=None, raw=None, content_type="application/json"):
         data = raw if raw is not None else json.dumps(payload or {}).encode()
         req = urllib.request.Request(self.base + path, data=data, method="POST",
-                                     headers={"Content-Type": "application/json"})
+                                     headers={"Content-Type": content_type})
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status, json.loads(resp.read())
         except urllib.error.HTTPError as err:
             return err.code, json.loads(err.read())
+
+    def request(self, method, path, headers=None, base=None):
+        """Raw request -> (status, headers); used for the CORS checks."""
+        req = urllib.request.Request((base or self.base) + path, method=method,
+                                     headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp.read()
+                return resp.status, resp.headers
+        except urllib.error.HTTPError as err:
+            err.read()
+            return err.code, err.headers
 
     # -- tests -----------------------------------------------------------------
     def test_status_before_matlab_connects(self):
@@ -189,6 +201,89 @@ class BridgeTestCase(unittest.TestCase):
         with urllib.request.urlopen(self.base + "/", timeout=5) as resp:
             html = resp.read().decode("utf-8")
         self.assertIn("app.js", html)
+
+    # -- public website (GitHub Pages) -> bridge on this PC: CORS ----------------
+    def test_cors_allows_public_site_and_local_dashboards(self):
+        for origin in (bridge_server.PUBLIC_SITE_ORIGIN, "http://localhost:5500",
+                       "http://127.0.0.1:3000", "http://[::1]:8080"):
+            code, hdrs = self.request("GET", "/api/status", {"Origin": origin})
+            self.assertEqual(code, 200)
+            self.assertEqual(hdrs.get("Access-Control-Allow-Origin"), origin, origin)
+
+    def test_cors_other_websites_get_no_access(self):
+        for origin in ("https://evil.example", "null", "http://localhost.evil.example",
+                       bridge_server.PUBLIC_SITE_ORIGIN + ".evil.example",
+                       "http://jackreacher007316.github.io"):
+            _, hdrs = self.request("GET", "/api/status", {"Origin": origin})
+            self.assertIsNone(hdrs.get("Access-Control-Allow-Origin"), origin)
+
+    def test_preflight_from_public_site(self):
+        code, hdrs = self.request("OPTIONS", "/api/matlab/launch", {
+            "Origin": bridge_server.PUBLIC_SITE_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+            "Access-Control-Request-Private-Network": "true",
+        })
+        self.assertEqual(code, 204)
+        self.assertEqual(hdrs.get("Access-Control-Allow-Origin"), bridge_server.PUBLIC_SITE_ORIGIN)
+        self.assertIn("POST", hdrs.get("Access-Control-Allow-Methods", ""))
+        self.assertIn("content-type", hdrs.get("Access-Control-Allow-Headers", "").lower())
+        self.assertEqual(hdrs.get("Access-Control-Allow-Private-Network"), "true")
+
+    def test_preflight_from_unknown_site_is_refused(self):
+        code, hdrs = self.request("OPTIONS", "/api/matlab/launch", {
+            "Origin": "https://evil.example", "Access-Control-Request-Method": "POST"})
+        self.assertEqual(code, 403)
+        self.assertIsNone(hdrs.get("Access-Control-Allow-Origin"))
+
+    def test_posts_must_be_json(self):
+        calls = []
+        original = bridge_server.find_matlab
+        bridge_server.find_matlab = lambda max_age=30.0: calls.append(1)
+        self.addCleanup(setattr, bridge_server, "find_matlab", original)
+        body = json.dumps({"target": "live"}).encode()
+        # What a hidden form / no-cors request from another website can send:
+        for ctype in ("text/plain;charset=UTF-8", "application/x-www-form-urlencoded",
+                      "multipart/form-data; boundary=x"):
+            code, res = self.post("/api/matlab/launch", raw=body, content_type=ctype)
+            self.assertEqual((code, res["status"]), (415, "error"), ctype)
+            code, _ = self.post("/api/matlab/input", raw=json.dumps(PATCH_INPUT).encode(),
+                                content_type=ctype)
+            self.assertEqual(code, 415, ctype)
+        self.assertEqual(calls, [])                      # MATLAB was never looked up
+        self.assertEqual(self.state.seq, 0)              # no input was accepted
+        # MATLAB's webwrite / the dashboard: JSON, optionally with a charset.
+        code, res = self.post("/api/matlab/input", PATCH_INPUT,
+                              content_type="application/json; charset=UTF-8")
+        self.assertEqual((code, res["seq"]), (200, 1))
+
+    def test_extra_allowed_origins(self):
+        _, base2 = self.start_server(os.path.join(self.tmp.name, "b.json"))
+        _, hdrs = self.request("GET", "/api/status", {"Origin": "https://example.org"}, base=base2)
+        self.assertIsNone(hdrs.get("Access-Control-Allow-Origin"))
+
+        server3 = bridge_server.make_server("127.0.0.1", 0, os.path.join(self.tmp.name, "c.json"),
+                                            allow_origins=["https://Example.org/"])
+        threading.Thread(target=server3.serve_forever, daemon=True).start()
+        self.addCleanup(server3.server_close)
+        self.addCleanup(server3.shutdown)
+        base3 = f"http://127.0.0.1:{server3.server_address[1]}"
+        _, hdrs = self.request("GET", "/api/status", {"Origin": "https://example.org"}, base=base3)
+        self.assertEqual(hdrs.get("Access-Control-Allow-Origin"), "https://example.org")
+
+        server4 = bridge_server.make_server("127.0.0.1", 0, os.path.join(self.tmp.name, "d.json"),
+                                            allow_origins=["*"])
+        threading.Thread(target=server4.serve_forever, daemon=True).start()
+        self.addCleanup(server4.server_close)
+        self.addCleanup(server4.shutdown)
+        base4 = f"http://127.0.0.1:{server4.server_address[1]}"
+        _, hdrs = self.request("GET", "/api/status", {"Origin": "https://any.example"}, base=base4)
+        self.assertEqual(hdrs.get("Access-Control-Allow-Origin"), "https://any.example")
+
+    def test_parse_origin_list(self):
+        self.assertEqual(bridge_server.parse_origin_list(" https://A.org/, http://b.net  * "),
+                         ["https://a.org", "http://b.net", "*"])
+        self.assertEqual(bridge_server.parse_origin_list(""), [])
 
     def test_find_matlab_prefers_newest_release(self):
         paths = [r"C:\Program Files\MATLAB\R2024b\bin\matlab.exe",

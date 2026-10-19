@@ -2542,3 +2542,6 @@ body {
   color: #f59e0b;
   border-radius: 3px;
 }
+.mlink-help a {
+  color: #38bdf8;
+}

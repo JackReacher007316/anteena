@@ -47,5 +47,6 @@ if defined MATLAB_EXE (
 )
 echo.
 echo Dashboard : http://localhost:%PORT%/
+echo Website   : https://jackreacher007316.github.io/anteena/  (click CONNECT MATLAB)
 echo MATLAB    : window "Web Dashboard -> MATLAB Live Verification"
 endlocal
