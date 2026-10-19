@@ -1061,6 +1061,13 @@
           </div>
           <div class="mlink-help" id="mlink-bridge-help" style="display: none;">
             <strong>Connect MATLAB on this PC - one-time setup (Windows):</strong>
+            <div class="mlink-oneliner">
+              <div>Fastest: press <kbd>Win</kbd> + <kbd>R</kbd>, paste this line and press Enter. It installs
+                everything by itself (Python too, if missing), then opens this website - click <strong>Allow</strong>.</div>
+              <code id="mlink-install-cmd">powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteena/install.ps1'))"</code>
+              <button class="tactile-btn" id="btn-copy-install-cmd" type="button">&#128203; COPY INSTALL COMMAND</button>
+            </div>
+            Or by hand:
             <ol class="mlink-steps">
               <li>Get the PC connector: <a class="connector-zip" href="https://github.com/JackReacher007316/anteena" target="_blank" rel="noopener">&#11015; download ZIP</a>
                 and unzip it (already have the repository? <code>git pull</code> instead).</li>

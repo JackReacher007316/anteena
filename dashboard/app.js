@@ -5018,8 +5018,8 @@ function initMatlabModal() {
     }, delay);
     const bridgeMissing = () => (MatlabLink.sameOrigin
       ? '⚠ Bridge server not reachable. Start it with:  python dashboard/bridge_server.py'
-      : `⚠ No bridge found on this PC (${MatlabLink.localUrl}). One-time setup: download the PC connector `
-        + '(MATLAB panel, F4), unzip it and double-click install_live_link.bat - then click CONNECT again. '
+      : `⚠ No bridge found on this PC (${MatlabLink.localUrl}). One-time setup: open the MATLAB panel (F4), `
+        + 'click COPY INSTALL COMMAND, press Win+R, paste and press Enter - then click CONNECT again. '
         + 'If the browser asks to allow access to devices on your local network, click Allow. '
         + 'Blocked by mistake? Click the icon left of the address bar > Site settings > allow local network access.');
 
@@ -5369,6 +5369,17 @@ function flushMatlabSync() {
     .catch(() => { /* bridge offline - the status poll reports it */ });
 }
 
+// Clipboard not available: select the command so Ctrl+C copies it.
+function selectInstallCommand() {
+  const el = document.getElementById('mlink-install-cmd');
+  if (!el || !window.getSelection) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 function startMatlabLinkMonitor() {
   if (MatlabLink.monitor) return;
   initBridgeConfig();
@@ -5381,6 +5392,19 @@ function startMatlabLinkMonitor() {
     });
   }
   document.querySelectorAll('.connector-zip').forEach(a => { a.href = CONNECTOR_ZIP_URL; });
+  const copyInstall = document.getElementById('btn-copy-install-cmd');
+  copyInstall?.addEventListener('click', () => {
+    const cmd = (document.getElementById('mlink-install-cmd')?.textContent || '').trim();
+    const done = () => {
+      copyInstall.textContent = '✅ COPIED - NOW PRESS WIN+R, PASTE, ENTER';
+      setTimeout(() => { copyInstall.textContent = '📋 COPY INSTALL COMMAND'; }, 4000);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(cmd).then(done, () => selectInstallCommand());
+    } else {
+      selectInstallCommand();
+    }
+  });
   pollMatlabStatus();
   MatlabLink.monitor = setInterval(() => {
     // No bridge: look again every ~4.5 s instead of every tick.
@@ -5426,8 +5450,8 @@ function matlabLinkState() {
   if (!st) {
     if (!L.sameOrigin && !L.localOptIn) {
       return { color: '#ffaa00', text: 'OFFLINE - CLICK CONNECT MATLAB',
-               detail: 'Public website: MATLAB runs on your PC. One-time setup there: double-click '
-                     + 'install_live_link.bat (it keeps the bridge running), then click CONNECT MATLAB (LIVE).' };
+               detail: 'Public website: MATLAB runs on your PC. One-time setup there: MATLAB panel (F4) > '
+                     + 'COPY INSTALL COMMAND > Win+R > paste > Enter. Then click CONNECT MATLAB (LIVE).' };
     }
     if (!L.sameOrigin) {
       return { color: '#ff5555', text: 'BRIDGE NOT FOUND ON THIS PC',

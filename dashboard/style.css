@@ -2562,3 +2562,28 @@ body {
 .mlink-auto input {
   accent-color: #00ff88;
 }
+.mlink-oneliner {
+  margin: 8px 0 10px 0;
+  padding: 10px;
+  background: #0b1220;
+  border: 1px solid #38bdf8;
+  border-radius: 4px;
+  color: #cbd5e1;
+}
+.mlink-oneliner code {
+  display: block;
+  margin: 8px 0;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+  color: #7dd3fc;
+  border-color: #38bdf8;
+}
+.mlink-oneliner kbd {
+  padding: 1px 5px;
+  border: 1px solid #64748b;
+  border-radius: 3px;
+  background: #1e293b;
+  font-size: 0.75rem;
+}

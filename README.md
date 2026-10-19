@@ -2,8 +2,14 @@
 ### Integrating CST Studio Suite + MATLAB + Python ML
 
 **Live website:** https://jackreacher007316.github.io/anteena/ - the dashboard, hosted on GitHub
-Pages and online 24/7 (it does not depend on your PC). To connect it to MATLAB on your PC, run
-`install_live_link.bat` once - see [Live link](#5-live-link-web-dashboard---matlab-verification).
+Pages and online 24/7 (it does not depend on your PC).
+
+**Connect it to MATLAB on your Windows PC - one command, once:** press `Win`+`R`, paste this line
+and press Enter. It installs everything (Python too, if missing), checks MATLAB, and opens the
+website; click **Allow** if the browser asks. Details: [Live link](#5-live-link-web-dashboard---matlab-verification).
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteena/install.ps1'))"
+```
 
 ## Project Overview
 
@@ -17,6 +23,7 @@ with fast ML models, enabling rapid antenna design across multiple antenna types
 anteena/
 ├── README.md
 ├── index.html                   # Public website entry (GitHub Pages) -> dashboard/
+├── install.ps1                  # One-command Windows setup (Win+R one-liner above)
 ├── .nojekyll                    # GitHub Pages: serve the files as they are
 ├── data/
 │   ├── raw/                     # Raw CST parameter sweep exports
@@ -54,7 +61,8 @@ anteena/
 │   ├── style.css
 │   ├── app.js
 │   ├── bridge_server.py         # Serves the dashboard + live link to MATLAB
-│   └── live_link_setup.py       # install / start / stop / status / uninstall of the link
+│   ├── live_link_setup.py       # install / start / stop / status / uninstall of the link
+│   └── live_link_bootstrap.py   # download + install in one go (used by install.ps1)
 ├── matlab/  (live link)
 │   ├── live_verify.m            # Live window: dashboard inputs -> MATLAB verification
 │   ├── antenna_model.m          # MATLAB implementation of all 30 dashboard EM engines
@@ -65,6 +73,7 @@ anteena/
 ├── tests/
 │   ├── test_bridge_server.py    # python -m unittest discover -s tests
 │   ├── test_live_link_setup.py
+│   ├── test_live_link_bootstrap.py
 │   ├── gen_engine_reference.js  # node tests/gen_engine_reference.js
 │   └── fixtures/engine_reference.json
 ├── install_live_link.bat        # ONE-TIME: keeps MATLAB connected to the website
@@ -141,8 +150,14 @@ Whatever you set in the dashboard (antenna type, ML model, every slider) shows u
 MATLAB immediately. MATLAB re-computes the design on its own and checks every number
 the dashboard displays, then sends its verdict back to the dashboard.
 
-**Windows - one-time setup, then it stays connected:** double-click
-`install_live_link.bat` (needs Python 3). It:
+**Windows - one command, then it stays connected.** Press `Win`+`R`, paste the line from the
+top of this README (also on the website: MATLAB panel, F4, **COPY INSTALL COMMAND**) and press
+Enter. `install.ps1` finds Python 3 (or installs it with winget), downloads the PC connector to
+`%USERPROFILE%\anteena-live` (your own checkout is not touched), stops an old bridge on port 8000
+and runs the setup below. Running it again updates everything.
+
+**Same setup from a checkout of this repository:** double-click `install_live_link.bat`
+(needs Python 3). It:
 1. starts the bridge now and at every Windows log-in, in the background - no window,
    no admin rights (registry `HKCU\...\Run`, value `AnteenaMatlabBridge`);
 2. runs a one-time check inside MATLAB (`live_link_check`: MATLAB reproduces all 30
