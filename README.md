@@ -46,7 +46,19 @@ anteena/
 ├── dashboard/
 │   ├── index.html
 │   ├── style.css
-│   └── app.js
+│   ├── app.js
+│   └── bridge_server.py         # Serves the dashboard + live link to MATLAB
+├── matlab/  (live link)
+│   ├── live_verify.m            # Live window: dashboard inputs -> MATLAB verification
+│   ├── antenna_model.m          # MATLAB implementation of all 30 dashboard EM engines
+│   ├── antenna_s11_curve.m      # S11 trace (same model as the dashboard chart)
+│   ├── verify_web_input.m       # Dashboard vs MATLAB comparison (PASS / FAIL report)
+│   └── test_antenna_model.m     # Self-test: MATLAB == dashboard for all 30 antennas
+├── tests/
+│   ├── test_bridge_server.py    # python -m unittest discover -s tests
+│   ├── gen_engine_reference.js  # node tests/gen_engine_reference.js
+│   └── fixtures/engine_reference.json
+├── start_live_verification.bat  # 1 double-click: bridge + dashboard + MATLAB live_verify
 └── docs/
     └── project_report.md
 ```
@@ -112,6 +124,60 @@ python train_pipeline.py --antenna patch --model all
 ```matlab
 surrogate_optimizer('patch', model, -15, 7)
 ```
+
+### 5. Live link: Web dashboard -> MATLAB verification
+Whatever you set in the dashboard (antenna type, ML model, every slider) shows up in
+MATLAB immediately. MATLAB re-computes the design on its own and checks every number
+the dashboard displays, then sends its verdict back to the dashboard.
+
+**Windows, one double-click:** `start_live_verification.bat`. It starts the bridge,
+opens the dashboard and starts MATLAB with `live_verify`.
+
+**Manual start:**
+```bash
+python dashboard/bridge_server.py        # then open http://localhost:8000
+```
+```matlab
+cd matlab
+live_verify                              % MATLAB window follows the dashboard live
+```
+You can also click **CONNECT MATLAB (LIVE)** in the dashboard, which asks the bridge to
+start MATLAB for you. If MATLAB is not in a standard location, set the `MATLAB_EXE`
+environment variable first.
+
+**What you get in MATLAB**
+- **A window** called "Web Dashboard -> MATLAB Live Verification". It shows:
+  - the received inputs;
+  - MATLAB's S11 trace next to the dashboard's ML prediction;
+  - RF figures (VSWR, |Gamma|, return/mismatch loss, the -10 dB band);
+  - a check table: dashboard value | MATLAB value | error | tolerance | PASS/FAIL.
+- **Workspace variables** `web_input` (the raw dashboard input) and `web_verification`
+  (MATLAB's report). Both refresh on every change.
+- **The verdict back in the dashboard.** The status strip shows the real link state, for
+  example `MATLAB (R2026b): LIVE ✓ #12 PASS 10/10`. The MATLAB modal (F4) lists every check.
+
+**How the checks work**
+| Check | Compares | Tolerance |
+|-------|----------|-----------|
+| Engine | Every number from the dashboard EM engine vs `antenna_model.m` | max(1e-9, 1e-6 x value), i.e. exact |
+| ML surrogate | The ML prediction displayed (S11, Gain, Fr, BW) vs MATLAB | 1 dB, 0.5 dB, 1 % (>= 10 MHz), 5 % (>= 20 MHz) |
+
+**Useful commands**
+- `live_verify('http://127.0.0.1:8080')`: use a bridge on another port.
+- `live_verify stop`: stop the link and close the window.
+- `test_antenna_model`: proves MATLAB reproduces all 30 dashboard engines.
+
+If the bridge is not running, `live_verify` watches `data/user_input.json` instead.
+
+Bridge API (used by the dashboard and MATLAB):
+- `POST /api/matlab/input`: the dashboard pushes an input.
+- `GET /api/matlab/input?since=<seq>&client=matlab`: MATLAB polls for new input.
+- `POST /api/matlab/result`: MATLAB posts its verification.
+- `GET /api/status`: the real link state.
+- `POST /api/matlab/launch`: starts MATLAB with `live_verify`.
+
+Tests: `python -m unittest discover -s tests`. After changing an engine formula, re-run
+`node tests/gen_engine_reference.js` and `test_antenna_model` in MATLAB.
 
 ## Expected Performance
 

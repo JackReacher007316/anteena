@@ -70,12 +70,12 @@
     <div class="strip-item">
       <span class="strip-label">ML SURROGATE: <strong id="strip-model-name">GPR (MATÉRN 5/2)</strong></span>
     </div>
-    <div class="strip-item">
-      <span class="led-indicator led-green" id="led-matlab" style="background:#00ff88; box-shadow: 0 0 8px #00ff88;"></span>
-      <span class="strip-label">MATLAB (R2026b): <strong id="matlab-live-status" style="color:#00ff88;">CONNECTED (LIVE 24/7)</strong></span>
+    <div class="strip-item" id="matlab-live-item" title="Live link: every change in this dashboard is sent to MATLAB (live_verify), which re-computes and verifies it">
+      <span class="led-indicator" id="led-matlab" style="background:#666; box-shadow:none;"></span>
+      <span class="strip-label"><span id="matlab-live-label">MATLAB</span>: <strong id="matlab-live-status" style="color:#ffaa00;">CHECKING LINK...</strong></span>
     </div>
     <div class="strip-item strip-actions">
-      <button class="tactile-btn strip-quick-btn" id="btn-launch-matlab-desktop" style="background:#059669; color:#fff; font-weight:bold; border-color:#34d399;" title="Launch MATLAB verification window on your computer screen">🚀 OPEN MATLAB GUI</button>
+      <button class="tactile-btn strip-quick-btn" id="btn-launch-matlab-desktop" style="background:#059669; color:#fff; font-weight:bold; border-color:#34d399;" title="Start MATLAB with the live verification window (live_verify)">🚀 CONNECT MATLAB (LIVE)</button>
       <button class="tactile-btn strip-quick-btn" id="strip-btn-matlab" style="background:#0284c7; color:#fff; font-weight:bold; border-color:#38bdf8;" title="MATLAB R2026b & CST Verification Hub">📊 MATLAB CO-SIM (F4)</button>
       <button class="tactile-btn strip-quick-btn" id="strip-btn-generator" title="Synthesize & Generate any antenna">⚡ GENERATOR (3D)</button>
       <button class="tactile-btn strip-quick-btn" id="strip-btn-paper" title="Generate IEEE Research Paper">📄 IEEE PAPER (F3)</button>
@@ -963,9 +963,22 @@
           </p>
         </div>
 
-        <!-- 3 Quick Action Cards -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-bottom: 16px;">
-          
+        <!-- Quick Action Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px;">
+
+          <!-- Card 0: Live link (dashboard inputs -> MATLAB) -->
+          <div style="background: #141722; border: 1px solid #f59e0b; padding: 12px; border-radius: 4px;">
+            <div style="color: #f59e0b; font-weight: bold; font-size: 0.95rem; margin-bottom: 6px;">
+              🔗 0. LIVE LINK
+            </div>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">
+              Live MATLAB window: shows every input you set here and verifies it independently.
+            </p>
+            <div style="background: #08090d; padding: 6px 10px; font-family: 'JetBrains Mono', monospace; color: #f59e0b; font-size: 0.85rem; border-radius: 3px; border: 1px dashed #f59e0b;">
+              live_verify
+            </div>
+          </div>
+
           <!-- Card 1: 1-Command Verify -->
           <div style="background: #141722; border: 1px solid #00ff88; padding: 12px; border-radius: 4px;">
             <div style="color: #00ff88; font-weight: bold; font-size: 0.95rem; margin-bottom: 6px;">
@@ -1010,45 +1023,53 @@
         <!-- DIRECT ZERO-CODE 1-CLICK LAUNCH BUTTON -->
         <div style="background: #101a2b; border: 2px solid #00d4ff; padding: 16px; border-radius: 6px; margin-bottom: 16px; text-align: center;">
           <button class="tactile-btn" id="btn-run-matlab-auto" style="width: 100%; padding: 15px 20px; background: #059669; color: #ffffff; font-size: 1.15rem; font-weight: bold; border-radius: 4px; border: 2px solid #34d399; cursor: pointer; text-shadow: 0 1px 2px #000; box-shadow: 0 0 20px rgba(5, 150, 105, 0.5);">
-            ⚡ CLICK HERE: RUN VERIFICATION IN MATLAB (ZERO CODE TO WRITE)
+            ⚡ CLICK HERE: CONNECT MATLAB LIVE (OPENS live_verify)
           </button>
           <div id="matlab-launch-feedback" style="display: none; margin-top: 10px; padding: 10px 14px; background: #064e3b; border: 1px solid #34d399; color: #6ee7b7; font-weight: bold; border-radius: 4px; font-size: 0.95rem;"></div>
           <p style="margin: 8px 0 0 0; font-size: 0.8rem; color: #94a3b8;">
-            No typing needed! Clicking this directly tells MATLAB to open and plot the CST 3D vs. ML Verification curves.
+            Starts MATLAB with the live verification window (or reuses the one already running). Keep it open:
+            every antenna, model and slider change you make here appears in MATLAB instantly and is verified there.
           </p>
         </div>
 
-        <!-- Live Results Card Displayed Directly In Browser -->
-        <div style="background: #141722; border: 1px solid #334155; padding: 14px; border-radius: 4px; margin-bottom: 16px;">
-          <div style="color: #00ff88; font-weight: bold; font-size: 0.95rem; margin-bottom: 10px;">
-            📊 LIVE VERIFICATION METRICS (CST 3D FIT SOLVER vs. ML GPR SURROGATE)
+        <!-- Live MATLAB verification results (filled by app.js, section "MATLAB LIVE LINK") -->
+        <div class="mlink-panel" id="mlink-panel">
+          <div class="mlink-head">
+            <span class="mlink-led" id="mlink-led"></span>
+            <span class="mlink-title">🔗 LIVE LINK: DASHBOARD → MATLAB VERIFICATION</span>
+            <span class="mlink-state" id="mlink-state">CHECKING...</span>
           </div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
-            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #00ff88;">
-              <div style="font-size: 0.75rem; color: #94a3b8;">RESONANCE (f₀)</div>
-              <div style="font-size: 1.1rem; color: #fff; font-weight: bold;">2.450 GHz <span style="font-size: 0.8rem; color: #00ff88;">(0.24% err)</span></div>
-            </div>
-            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #00d4ff;">
-              <div style="font-size: 0.75rem; color: #94a3b8;">RETURN LOSS (S₁₁)</div>
-              <div style="font-size: 1.1rem; color: #fff; font-weight: bold;">-24.8 dB <span style="font-size: 0.8rem; color: #00d4ff;">(±0.4 dB)</span></div>
-            </div>
-            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #c44dff;">
-              <div style="font-size: 0.75rem; color: #94a3b8;">CORRELATION (R²)</div>
-              <div style="font-size: 1.1rem; color: #fff; font-weight: bold;">0.9935 <span style="font-size: 0.8rem; color: #c44dff;">(High Fit)</span></div>
-            </div>
-            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #f59e0b;">
-              <div style="font-size: 0.75rem; color: #94a3b8;">SPEEDUP FACTOR</div>
-              <div style="font-size: 1.1rem; color: #f59e0b; font-weight: bold;">660,000x <span style="font-size: 0.75rem; color: #94a3b8;">(0.36 ms)</span></div>
-            </div>
+          <div class="mlink-meta" id="mlink-meta">
+            Every input change is sent to MATLAB, which re-computes the antenna independently
+            (antenna_model.m) and reports its verdict back here.
+          </div>
+          <div class="mlink-summary" id="mlink-summary"></div>
+          <div class="mlink-table-wrap">
+            <table class="mlink-table">
+              <thead>
+                <tr><th>Check</th><th>Dashboard</th><th>MATLAB</th><th>|Δ|</th><th>Tolerance</th><th>Result</th></tr>
+              </thead>
+              <tbody id="mlink-rows">
+                <tr><td colspan="6" class="mlink-empty">No MATLAB verification yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mlink-help" id="mlink-help">
+            MATLAB not connected? In the MATLAB Command Window run:
+            <code id="mlink-cmd">cd('&lt;repo&gt;/matlab'); live_verify</code>
           </div>
         </div>
 
         <!-- Files in Repository -->
         <div style="background: #141722; border: 1px solid #334155; padding: 12px; border-radius: 4px;">
           <div style="color: #cbd5e1; font-weight: bold; font-size: 0.85rem; margin-bottom: 8px;">
-            📁 REPOSITORY MATLAB SCRIPTS (c:\Users\AARYAN\anteena\matlab\):
+            📁 REPOSITORY MATLAB SCRIPTS (<span id="matlab-dir-path">anteena/matlab/</span>):
           </div>
           <ul style="margin: 0; padding-left: 20px; font-size: 0.8rem; color: #94a3b8; line-height: 1.6;">
+            <li><strong style="color: #f59e0b;">live_verify.m</strong> — Live link: mirrors every dashboard input in a MATLAB window and verifies it (results come back here).</li>
+            <li><strong style="color: #f59e0b;">antenna_model.m</strong> — Independent MATLAB implementation of all 30 dashboard EM engines.</li>
+            <li><strong style="color: #f59e0b;">verify_web_input.m</strong> — Dashboard-vs-MATLAB comparison with tolerances (PASS / FAIL report).</li>
+            <li><strong style="color: #f59e0b;">test_antenna_model.m</strong> — Self-test: proves MATLAB reproduces the dashboard engines for all 30 antennas.</li>
             <li><strong style="color: #38bdf8;">verify.m</strong> — One-command verification popup comparing CST 3D vs. ML models.</li>
             <li><strong style="color: #38bdf8;">antenna_gui.m</strong> — Standalone GUI workstation with sliders, antenna switchers, and real-time S11 response.</li>
             <li><strong style="color: #38bdf8;">cst_matlab_connect.m</strong> — Safe, non-blocking ActiveX COM connection bridge to CST Studio Suite.</li>
@@ -1061,7 +1082,7 @@
       </div>
 
       <div class="notepad-footer">
-        <span class="notepad-status">MATLAB R2026b & CST Studio Suite Bridge | READY</span>
+        <span class="notepad-status" id="matlab-modal-status">MATLAB live link | CHECKING...</span>
         <div class="notepad-btn-group">
           <button class="tactile-btn" id="btn-copy-bat-cmd">⚡ COPY 1-CLICK LAUNCHER</button>
         </div>

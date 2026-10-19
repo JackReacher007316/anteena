@@ -2441,18 +2441,10 @@ function runPrediction(isExplicitClick = true) {
   updateAIAdvisor(sim);
   drawChart();
 
-  // Continuous real-time synchronization with background MATLAB / CST Bridge Server
-  try {
-    fetch('/api/matlab/simulate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        antenna: currentAntenna,
-        model: currentModel,
-        params: currentParams
-      })
-    }).catch(() => {});
-  } catch (e) {}
+  // Live link -> MATLAB: send this exact input plus the numbers shown above.
+  // MATLAB (live_verify.m) re-computes it independently and reports back
+  // (see section "MATLAB LIVE LINK").
+  queueMatlabSync(buildMatlabPayload(config, sim, { S11, Gain, BW, Fr, sigma }));
 
   if (isExplicitClick && btn) {
     setTimeout(() => { btn.style.opacity = '1'; btn.textContent = '⚡ RE-CALCULATE (ENTER)'; }, 250);
@@ -4961,11 +4953,14 @@ function initMatlabModal() {
       paramVecStr = vals.length > 0 ? `[${vals.slice(0, 4).join(', ')}]` : `[29.4, 38.0, 1.6, 4.4]`;
     }
 
+    const matlabDir = (MatlabLink.matlabDir || 'anteena/matlab').replace(/'/g, "''");
     const code = `% ========================================================\n` +
       `% MATLAB R2026b & CST Studio Suite Verification Command\n` +
       `% Target: ${cfg.fullName || 'Patch Antenna'} (${currentAntenna.toUpperCase()})\n` +
       `% ========================================================\n\n` +
-      `cd 'c:\\Users\\AARYAN\\anteena\\matlab'\n\n` +
+      `cd('${matlabDir}')\n\n` +
+      `% Option 0: Live link - every dashboard change appears in MATLAB and is verified\n` +
+      `live_verify\n\n` +
       `% Option 1: Quick 1-Command Verification (Opens Verification Dashboard)\n` +
       `verify\n\n` +
       `% Option 2: Live Co-Simulation with Current Dashboard Parameters\n` +
@@ -5001,47 +4996,62 @@ function initMatlabModal() {
     setTimeout(openModal, 400);
   }
 
-  // 1-Click Launch MATLAB Desktop Window
+  // 1-Click: start MATLAB with the live link (live_verify)
+  const BTN_LABEL = '🚀 CONNECT MATLAB (LIVE)';
+  const BTN_AUTO_LABEL = '⚡ CLICK HERE: CONNECT MATLAB LIVE (OPENS live_verify)';
   const handleLaunch = () => {
     playRetroSound('sweep');
     const btn = document.getElementById('btn-launch-matlab-desktop');
     const btnAuto = document.getElementById('btn-run-matlab-auto');
     const feedback = document.getElementById('matlab-launch-feedback');
-
-    if (btn) btn.textContent = '⏳ LAUNCHING MATLAB...';
-    if (btnAuto) btnAuto.textContent = '⏳ LAUNCHING MATLAB ON DESKTOP...';
-    if (feedback) {
+    const showFeedback = (msg, ok) => {
+      if (!feedback) return;
       feedback.style.display = 'block';
-      feedback.textContent = '🚀 Sending command to MATLAB engine... Window opening on your screen.';
-    }
+      feedback.style.background = ok ? '#064e3b' : '#3b1d0a';
+      feedback.style.borderColor = ok ? '#34d399' : '#f59e0b';
+      feedback.style.color = ok ? '#6ee7b7' : '#fcd34d';
+      feedback.textContent = msg;
+    };
+    const resetButtons = (delay) => setTimeout(() => {
+      if (btn) btn.textContent = BTN_LABEL;
+      if (btnAuto) btnAuto.textContent = BTN_AUTO_LABEL;
+    }, delay);
 
-    fetch('/api/matlab/launch', { method: 'POST' })
+    if (btn) btn.textContent = '⏳ STARTING MATLAB...';
+    if (btnAuto) btnAuto.textContent = '⏳ STARTING MATLAB LIVE LINK...';
+    showFeedback('🚀 Asking the bridge to start MATLAB with live_verify ...', true);
+
+    fetch('/api/matlab/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: 'live' }),
+    })
       .then(r => r.json())
       .then(res => {
-        if (btn) {
-          btn.textContent = '✅ MATLAB OPENED!';
-          setTimeout(() => { btn.textContent = '🚀 OPEN MATLAB GUI'; }, 3000);
+        if (res.status === 'launched' || res.status === 'already_connected') {
+          const done = res.status === 'launched' ? '✅ MATLAB STARTING...' : '✅ MATLAB ALREADY LIVE';
+          if (btn) btn.textContent = done;
+          if (btnAuto) btnAuto.textContent = done;
+          showFeedback(`✅ ${res.message}`, true);
+          setTimeout(pollMatlabStatus, 1500);
+        } else {
+          if (btn) btn.textContent = '⚠ MATLAB NOT STARTED';
+          if (btnAuto) btnAuto.textContent = '⚠ MATLAB NOT STARTED - SEE BELOW';
+          showFeedback(`⚠ ${res.message || 'MATLAB could not be started.'}`, false);
         }
-        if (btnAuto) {
-          btnAuto.textContent = '✅ MATLAB RUNNING ON SCREEN!';
-          setTimeout(() => { btnAuto.textContent = '⚡ CLICK HERE: RUN VERIFICATION IN MATLAB (ZERO CODE TO WRITE)'; }, 3500);
-        }
-        if (feedback) {
-          feedback.textContent = '✅ Success! MATLAB Verification is now running. Check your taskbar / screen!';
-        }
+        resetButtons(4000);
       })
       .catch(() => {
-        if (btn) btn.textContent = '🚀 OPEN MATLAB GUI';
-        if (btnAuto) btnAuto.textContent = '⚡ CLICK HERE: RUN VERIFICATION IN MATLAB (ZERO CODE TO WRITE)';
+        showFeedback('⚠ Bridge server not reachable. Start it with:  python dashboard/bridge_server.py', false);
+        resetButtons(2500);
       });
   };
 
   document.getElementById('btn-launch-matlab-desktop')?.addEventListener('click', handleLaunch);
   document.getElementById('btn-run-matlab-auto')?.addEventListener('click', handleLaunch);
 
-  // Check persistent MATLAB connection status immediately and every 10s
-  checkMatlabLiveConnection();
-  setInterval(checkMatlabLiveConnection, 10000);
+  // Real MATLAB link status (polls the bridge; see section "MATLAB LIVE LINK")
+  startMatlabLinkMonitor();
 
   btnCopyCode?.addEventListener('click', () => {
     if (codePreview) {
@@ -5055,7 +5065,10 @@ function initMatlabModal() {
   });
 
   btnCopyBat?.addEventListener('click', () => {
-    const cmd = `cd /d c:\\Users\\AARYAN\\anteena\\matlab && "C:\\Program Files\\MATLAB\\R2026b\\bin\\matlab.exe" -nosplash -r "verify"`;
+    const st = MatlabLink.status || {};
+    const dir = st.matlab_dir || 'anteena\\matlab';
+    const exe = st.matlab_exe || 'C:\\Program Files\\MATLAB\\R2026b\\bin\\matlab.exe';
+    const cmd = `cd /d "${dir}" && "${exe}" -sd "${dir}" -r "live_verify"`;
     navigator.clipboard.writeText(cmd).then(() => {
       const orig = btnCopyBat.textContent;
       btnCopyBat.textContent = '✅ COPIED COMMAND!';
@@ -5074,24 +5087,217 @@ function initMatlabModal() {
   });
 }
 
-function checkMatlabLiveConnection() {
-  fetch('/api/status')
-    .then(r => r.json())
-    .then(data => {
-      const statusEl = document.getElementById('matlab-live-status');
-      const ledEl = document.getElementById('led-matlab');
-      if (statusEl && data.matlab_connected) {
-        statusEl.textContent = 'CONNECTED (LIVE 24/7)';
-        statusEl.style.color = '#00ff88';
-        if (ledEl) {
-          ledEl.style.background = '#00ff88';
-          ledEl.style.boxShadow = '0 0 10px #00ff88';
-        }
+// ═══════════════════════════════════════════════════════════
+// 21. MATLAB LIVE LINK  (dashboard -> bridge_server.py -> MATLAB live_verify)
+// ═══════════════════════════════════════════════════════════
+// Every input change is pushed to the bridge (throttled). MATLAB polls the
+// bridge, re-computes the antenna independently (matlab/antenna_model.m),
+// verifies the numbers shown here and posts its verdict back. The status
+// strip and the MATLAB modal show MATLAB's *real* state.
+
+const MatlabLink = {
+  pending: null,      // newest payload waiting to be sent
+  timer: null,
+  lastSentAt: 0,
+  sentSeq: 0,         // sequence number the bridge gave our latest input
+  status: null,       // last /api/status reply (null = bridge unreachable)
+  monitor: null,
+  matlabDir: null,
+  THROTTLE_MS: 120,   // max ~8 inputs/s while dragging a slider
+  POLL_MS: 1500,
+};
+
+function buildMatlabPayload(config, sim, shown) {
+  const physics = {};
+  Object.entries(sim).forEach(([k, v]) => {
+    if (typeof v === 'number' && Number.isFinite(v)) physics[k] = v;
+  });
+  const prediction = {};
+  Object.entries(shown).forEach(([k, v]) => {
+    const x = parseFloat(v);
+    if (Number.isFinite(x)) prediction[k] = x;
+  });
+  return {
+    antenna: currentAntenna,
+    antenna_name: config.fullName,
+    model: currentModel,
+    params: { ...currentParams },
+    param_meta: config.params.map(p => ({ id: p.id, label: p.label, min: p.min, max: p.max })),
+    freq_range: config.freqRange,
+    dashboard: { physics, prediction },
+    client_time: Date.now(),
+  };
+}
+
+function queueMatlabSync(payload) {
+  MatlabLink.pending = payload;   // always keep only the newest input
+  if (MatlabLink.timer) return;
+  const wait = Math.max(0, MatlabLink.THROTTLE_MS - (Date.now() - MatlabLink.lastSentAt));
+  MatlabLink.timer = setTimeout(flushMatlabSync, wait);
+}
+
+function flushMatlabSync() {
+  MatlabLink.timer = null;
+  const payload = MatlabLink.pending;
+  MatlabLink.pending = null;
+  if (!payload) return;
+  MatlabLink.lastSentAt = Date.now();
+  fetch('/api/matlab/input', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+    .then(r => (r.ok ? r.json() : null))
+    .then(res => {
+      if (res && res.seq) {
+        MatlabLink.sentSeq = res.seq;
+        renderMatlabLink();
       }
     })
-    .catch(err => {
-      console.warn('MATLAB bridge ping:', err);
+    .catch(() => { /* bridge offline - the status poll reports it */ });
+}
+
+function startMatlabLinkMonitor() {
+  if (MatlabLink.monitor) return;
+  pollMatlabStatus();
+  MatlabLink.monitor = setInterval(pollMatlabStatus, MatlabLink.POLL_MS);
+}
+
+function pollMatlabStatus() {
+  fetch('/api/status', { cache: 'no-store' })
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then(st => {
+      MatlabLink.status = st;
+      if (st.matlab_dir) MatlabLink.matlabDir = st.matlab_dir;
+      renderMatlabLink();
+    })
+    .catch(() => {
+      MatlabLink.status = null;
+      renderMatlabLink();
     });
+}
+
+function matlabLinkState() {
+  const st = MatlabLink.status;
+  if (!st) {
+    return { color: '#ff5555', text: 'BRIDGE OFFLINE',
+             detail: 'Bridge server not reachable - start it with: python dashboard/bridge_server.py' };
+  }
+  if (!st.matlab_connected) {
+    return { color: '#ffaa00', text: 'NOT CONNECTED - RUN live_verify',
+             detail: 'MATLAB is not polling the bridge. Click CONNECT MATLAB, or run live_verify in MATLAB.' };
+  }
+  const res = st.matlab_result;
+  if (!res || res.seq == null) {
+    return { color: '#00ff88', text: 'LIVE - WAITING FOR INPUT', detail: 'MATLAB is connected. Move any slider.' };
+  }
+  if (st.input_seq && res.seq !== st.input_seq) {
+    return { color: '#00d4ff', text: `LIVE - VERIFYING #${st.input_seq}`, detail: 'MATLAB is processing your latest input...' };
+  }
+  const n = res.n_checks || 0;
+  const ok = res.n_pass || 0;
+  if (res.status === 'PASS') {
+    return { color: '#00ff88', text: `LIVE ✓ #${res.seq} PASS ${ok}/${n}`, detail: res.summary || '' };
+  }
+  if (res.status === 'FAIL') {
+    return { color: '#ff5555', text: `LIVE ✗ #${res.seq} FAIL ${n - ok}/${n}`, detail: res.summary || '' };
+  }
+  return { color: '#ffaa00', text: `LIVE #${res.seq} ${res.status || ''}`.trim(), detail: res.summary || '' };
+}
+
+function fmtLinkNum(v) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  if (a >= 1e5 || a < 1e-3) return v.toExponential(2);
+  return String(parseFloat(v.toPrecision(6)));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderMatlabLink() {
+  const state = matlabLinkState();
+  const st = MatlabLink.status;
+
+  // Status strip
+  const led = document.getElementById('led-matlab');
+  const statusEl = document.getElementById('matlab-live-status');
+  const labelEl = document.getElementById('matlab-live-label');
+  const item = document.getElementById('matlab-live-item');
+  if (led) {
+    led.style.background = state.color;
+    led.style.boxShadow = `0 0 8px ${state.color}`;
+  }
+  if (statusEl) {
+    statusEl.textContent = state.text;
+    statusEl.style.color = state.color;
+  }
+  if (labelEl) {
+    const rel = st && st.matlab_version ? (st.matlab_version.match(/R\d{4}[ab]/) || [])[0] : null;
+    labelEl.textContent = rel ? `MATLAB (${rel})` : 'MATLAB';
+  }
+  if (item) item.title = state.detail || item.title;
+
+  // MATLAB modal panel
+  const mLed = document.getElementById('mlink-led');
+  const mState = document.getElementById('mlink-state');
+  const mMeta = document.getElementById('mlink-meta');
+  const mSummary = document.getElementById('mlink-summary');
+  const mRows = document.getElementById('mlink-rows');
+  const mHelp = document.getElementById('mlink-help');
+  const mCmd = document.getElementById('mlink-cmd');
+  const modalStatus = document.getElementById('matlab-modal-status');
+  const dirPath = document.getElementById('matlab-dir-path');
+  if (mLed) { mLed.style.background = state.color; mLed.style.boxShadow = `0 0 8px ${state.color}`; }
+  if (mState) { mState.textContent = state.text; mState.style.color = state.color; }
+  if (modalStatus) modalStatus.textContent = `MATLAB live link | ${state.text}`;
+  if (dirPath && MatlabLink.matlabDir) dirPath.textContent = MatlabLink.matlabDir;
+  if (mCmd && MatlabLink.matlabDir) mCmd.textContent = `cd('${MatlabLink.matlabDir.replace(/'/g, "''")}'); live_verify`;
+  if (mHelp) mHelp.style.display = st && st.matlab_connected ? 'none' : 'block';
+
+  if (mMeta) {
+    const parts = [];
+    if (st) {
+      parts.push(`Sent to MATLAB: #${st.input_seq || MatlabLink.sentSeq || 0}${st.input_antenna ? ' (' + st.input_antenna + ')' : ''}`);
+      parts.push(`Verified by MATLAB: ${st.matlab_seq != null ? '#' + st.matlab_seq : '—'}`);
+      if (st.matlab_last_seen_s != null) parts.push(`last MATLAB poll ${st.matlab_last_seen_s.toFixed(1)} s ago`);
+      if (st.matlab_version) parts.push(st.matlab_version);
+    } else {
+      parts.push(state.detail);
+    }
+    mMeta.textContent = parts.join('  ·  ');
+  }
+
+  const res = st && st.matlab_result;
+  if (mSummary) {
+    if (res && res.summary) {
+      const color = res.status === 'PASS' ? '#00ff88' : res.status === 'FAIL' ? '#ff5555' : '#ffaa00';
+      const ms = Number.isFinite(res.computed_ms) ? ` · computed in ${res.computed_ms.toFixed(2)} ms` : '';
+      mSummary.innerHTML = `<strong style="color:${color}">${escapeHtml(res.summary)}</strong>` +
+        `<span class="mlink-sub"> — #${escapeHtml(res.seq)} ${escapeHtml((res.antenna || '').toUpperCase())} / ${escapeHtml(res.model || '')}${ms}</span>` +
+        (Array.isArray(res.warnings) && res.warnings.length
+          ? `<div class="mlink-warn">${res.warnings.map(escapeHtml).join('<br>')}</div>` : '');
+    } else {
+      mSummary.textContent = '';
+    }
+  }
+  if (mRows) {
+    const checks = res && Array.isArray(res.checks) ? res.checks : [];
+    if (!checks.length) {
+      mRows.innerHTML = `<tr><td colspan="6" class="mlink-empty">${escapeHtml(state.detail || 'No MATLAB verification yet.')}</td></tr>`;
+    } else {
+      mRows.innerHTML = checks.map(c => {
+        const unit = c.unit ? ` [${escapeHtml(c.unit)}]` : '';
+        return `<tr class="${c.pass ? 'mlink-pass' : 'mlink-fail'}">` +
+          `<td>${escapeHtml(c.group)}: ${escapeHtml(c.metric)}${unit}</td>` +
+          `<td>${fmtLinkNum(c.dashboard)}</td><td>${fmtLinkNum(c.matlab)}</td>` +
+          `<td>${fmtLinkNum(c.abs_err)}</td><td>≤ ${fmtLinkNum(c.tol)}</td>` +
+          `<td class="mlink-verdict">${c.pass ? 'PASS' : 'FAIL'}</td></tr>`;
+      }).join('');
+    }
+  }
 }
 
 
