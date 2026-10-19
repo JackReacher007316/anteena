@@ -1,0 +1,11 @@
+{
+  "antenna": "patch",
+  "model": "gpr",
+  "params": {
+    "length": 29.4,
+    "width": 38,
+    "height": 1.6,
+    "permittivity": 4.4
+  },
+  "updated_at": 1792156870.163577
+}

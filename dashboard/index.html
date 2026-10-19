@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HP-8753E / CST EM-CAD Workstation | ML Antenna Surrogate Framework</title>
+  <meta name="description" content="Old School 1990s CAD & Vector Network Analyzer ML antenna surrogate modeling workstation. Real-time EM prediction and optimization."/>
+  
+  <!-- Retro & Monospace Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=Silkscreen&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body class="theme-vna">
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     RETRO WORKSTATION WINDOW CHROME
+══════════════════════════════════════════════════════════════════════ -->
+<div class="os-window-frame">
+
+  <!-- Titlebar -->
+  <header class="os-titlebar">
+    <div class="os-title-left">
+      <span class="os-icon">📡</span>
+      <span class="os-title-text">HP-8753E / CST EM-CAD 98 — [ANTENNA_SURROGATE_SYSTEM.EXE]</span>
+    </div>
+    <div class="os-title-controls">
+      <button class="os-btn-min" aria-label="Minimize">_</button>
+      <button class="os-btn-max" aria-label="Maximize">口</button>
+      <button class="os-btn-close" aria-label="Close">✕</button>
+    </div>
+  </header>
+
+  <!-- Classic Menu Bar -->
+  <nav class="os-menubar" role="menubar">
+    <div class="menu-item" id="btn-menu-file"><u>F</u>ile</div>
+    <div class="menu-item" id="btn-open-search">🔍 <u>F</u>ind (Ctrl+F)</div>
+    <div class="menu-item" id="btn-open-generator">⚡ <u>G</u>enerator (F2)</div>
+    <div class="menu-item" id="btn-open-paper">📄 <u>P</u>aper (F3)</div>
+    <div class="menu-item" id="btn-open-matlab">📊 <u>M</u>ATLAB Co-Sim (F4)</div>
+    <div class="menu-item" id="btn-menu-encyclopedia">📖 <u>E</u>ncyclopedia</div>
+    <div class="menu-item dropdown-parent">
+      <u>D</u>isplay Theme ▼
+      <div class="retro-dropdown" id="theme-dropdown">
+        <div class="dropdown-opt active" data-theme="theme-vna">📟 HP VNA (Phosphor CRT)</div>
+        <div class="dropdown-opt" data-theme="theme-win98">💾 Classic Win98 (CAD Gray)</div>
+        <div class="dropdown-opt" data-theme="theme-amber">☢️ Amber Terminal (Radar)</div>
+      </div>
+    </div>
+    <div class="menu-item" id="btn-toggle-sound"><u>S</u>ound: <span id="sound-state">OFF</span></div>
+    <div class="menu-item" id="btn-about"><u>H</u>elp (F1)</div>
+  </nav>
+
+  <!-- Instrument Top Status Strip -->
+  <div class="instrument-strip">
+    <div class="strip-item">
+      <span class="led-indicator led-green" id="led-pwr"></span>
+      <span class="strip-label">INSTRUMENT: <strong>ONLINE</strong></span>
+    </div>
+    <div class="strip-item">
+      <span class="led-indicator led-amber" id="led-sweep"></span>
+      <span class="strip-label">VNA SWEEP: <strong>TRIG-CONT</strong></span>
+    </div>
+    <div class="strip-item">
+      <span class="strip-label">BUS: <strong>GPIB #16</strong></span>
+    </div>
+    <div class="strip-item">
+      <span class="strip-label">ML SURROGATE: <strong id="strip-model-name">GPR (MATÉRN 5/2)</strong></span>
+    </div>
+    <div class="strip-item">
+      <span class="led-indicator led-green" id="led-matlab" style="background:#00ff88; box-shadow: 0 0 8px #00ff88;"></span>
+      <span class="strip-label">MATLAB (R2026b): <strong id="matlab-live-status" style="color:#00ff88;">CONNECTED (LIVE 24/7)</strong></span>
+    </div>
+    <div class="strip-item strip-actions">
+      <button class="tactile-btn strip-quick-btn" id="btn-launch-matlab-desktop" style="background:#059669; color:#fff; font-weight:bold; border-color:#34d399;" title="Launch MATLAB verification window on your computer screen">🚀 OPEN MATLAB GUI</button>
+      <button class="tactile-btn strip-quick-btn" id="strip-btn-matlab" style="background:#0284c7; color:#fff; font-weight:bold; border-color:#38bdf8;" title="MATLAB R2026b & CST Verification Hub">📊 MATLAB CO-SIM (F4)</button>
+      <button class="tactile-btn strip-quick-btn" id="strip-btn-generator" title="Synthesize & Generate any antenna">⚡ GENERATOR (3D)</button>
+      <button class="tactile-btn strip-quick-btn" id="strip-btn-paper" title="Generate IEEE Research Paper">📄 IEEE PAPER (F3)</button>
+      <button class="tactile-btn strip-quick-btn" id="strip-btn-search" title="Quick Search across all antennas">🔍 SEARCH (30)</button>
+    </div>
+    <div class="strip-item strip-clock" id="live-clock">
+      1998-10-09 08:15:00
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       MAIN INSTRUMENT WORKSPACE
+  ══════════════════════════════════════════════════════════════════════ -->
+  <main class="app-layout">
+
+    <!-- ── RETRO HARDWARE SIDEBAR ────────────────────────────── -->
+    <aside class="sidebar" role="navigation" aria-label="Antenna Selector Keypad">
+      <!-- SEARCH BAR -->
+      <div class="sidebar-header-bevel">
+        <span>🔍 SEARCH & FILTER</span>
+      </div>
+      <div class="search-wrapper">
+        <input type="text" id="antenna-search" class="retro-search-input" placeholder="Search 30 antennas... (/)" aria-label="Search antennas" autocomplete="off" />
+        <div class="search-results-dropdown hidden" id="search-results-dropdown"></div>
+      </div>
+
+      <!-- Quick Category Pills -->
+      <div class="sidebar-cat-pills" id="sidebar-cat-pills">
+        <button class="cat-pill active" data-cat="all">ALL</button>
+        <button class="cat-pill" data-cat="planar">PLANAR</button>
+        <button class="cat-pill" data-cat="wire">WIRE</button>
+        <button class="cat-pill" data-cat="aperture">APERT</button>
+        <button class="cat-pill" data-cat="array">ARRAY</button>
+        <button class="cat-pill" data-cat="wideband">WIDE</button>
+        <button class="cat-pill" data-cat="reflector">REFL</button>
+      </div>
+
+      <!-- Direct Generator Button -->
+      <button class="tactile-btn generator-btn" id="btn-generator" title="Generate any custom antenna with 3D model, EM readings & specs">
+        ⚡ 3D GENERATOR
+      </button>
+
+      <div class="sidebar-header-bevel">
+        <span>TOPOLOGY (30)</span>
+      </div>
+
+      <div class="antenna-buttons-list" id="antenna-buttons-list">
+        <button class="ant-btn active" id="btn-patch" data-type="patch">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">01 · PATCH</span>
+        </button>
+
+        <button class="ant-btn" id="btn-mimo" data-type="mimo">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">02 · MIMO</span>
+        </button>
+
+        <button class="ant-btn" id="btn-uwb" data-type="uwb">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">03 · UWB</span>
+        </button>
+
+        <button class="ant-btn" id="btn-5g" data-type="5g">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">04 · 5G ARRAY</span>
+        </button>
+
+        <button class="ant-btn" id="btn-fractal" data-type="fractal">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">05 · FRACTAL</span>
+        </button>
+
+        <button class="ant-btn" id="btn-horn" data-type="horn">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">06 · HORN</span>
+        </button>
+
+        <button class="ant-btn" id="btn-helical" data-type="helical">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">07 · HELICAL</span>
+        </button>
+
+        <button class="ant-btn" id="btn-dipole" data-type="dipole">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">08 · DIPOLE</span>
+        </button>
+
+        <button class="ant-btn" id="btn-yagi" data-type="yagi">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">09 · YAGI</span>
+        </button>
+
+        <button class="ant-btn" id="btn-dra" data-type="dra">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">10 · DRA</span>
+        </button>
+
+        <button class="ant-btn" id="btn-bowtie" data-type="bowtie">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">11 · BOW-TIE</span>
+        </button>
+
+        <button class="ant-btn" id="btn-slot" data-type="slot">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">12 · SLOT</span>
+        </button>
+
+        <button class="ant-btn" id="btn-logperiodic" data-type="logperiodic">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">13 · LOG-PER</span>
+        </button>
+
+        <button class="ant-btn" id="btn-vivaldi" data-type="vivaldi">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">14 · VIVALDI</span>
+        </button>
+
+        <button class="ant-btn" id="btn-parabolic" data-type="parabolic">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">15 · PARAB</span>
+        </button>
+
+        <button class="ant-btn" id="btn-loop" data-type="loop">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">16 · LOOP</span>
+        </button>
+
+        <button class="ant-btn" id="btn-monopole" data-type="monopole">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">17 · MONOPOL</span>
+        </button>
+
+        <button class="ant-btn" id="btn-lens" data-type="lens">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">18 · LENS</span>
+        </button>
+
+        <button class="ant-btn" id="btn-ifa" data-type="ifa">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">19 · IFA (BLE)</span>
+        </button>
+
+        <button class="ant-btn" id="btn-cassegrain" data-type="cassegrain">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">20 · CASSEGR</span>
+        </button>
+
+        <button class="ant-btn" id="btn-corrugatedhorn" data-type="corrugatedhorn">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">21 · CORR-HRN</span>
+        </button>
+
+        <button class="ant-btn" id="btn-biquad" data-type="biquad">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">22 · BI-QUAD</span>
+        </button>
+
+        <button class="ant-btn" id="btn-spiral" data-type="spiral">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">23 · SPIRAL</span>
+        </button>
+
+        <button class="ant-btn" id="btn-discone" data-type="discone">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">24 · DISCONE</span>
+        </button>
+
+        <button class="ant-btn" id="btn-turnstile" data-type="turnstile">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">25 · TURNSTIL</span>
+        </button>
+
+        <button class="ant-btn" id="btn-cornerreflector" data-type="cornerreflector">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">26 · CRN-REFL</span>
+        </button>
+
+        <button class="ant-btn" id="btn-patcharray" data-type="patcharray">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">27 · PTCH-ARR</span>
+        </button>
+
+        <button class="ant-btn" id="btn-collinear" data-type="collinear">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">28 · COLLINEAR</span>
+        </button>
+
+        <button class="ant-btn" id="btn-ris" data-type="ris">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">29 · RIS (6G)</span>
+        </button>
+
+        <button class="ant-btn" id="btn-whip" data-type="whip">
+          <span class="btn-led"></span>
+          <span class="ant-key-label">30 · WHIP</span>
+        </button>
+      </div>
+
+      <div class="sidebar-divider-bevel"></div>
+
+      <div class="sidebar-header-bevel">
+        <span>ML ENGINE</span>
+      </div>
+      <div class="model-select-wrapper">
+        <select id="model-select" class="retro-select" aria-label="Select ML Model">
+          <option value="ann">ANN (MLP)</option>
+          <option value="gpr" selected>GPR (Matérn 5/2)</option>
+          <option value="rf">Random Forest</option>
+          <option value="xgb">XGBoost</option>
+          <option value="svr">SVR (RBF)</option>
+          <option value="gbm">Gradient Boost</option>
+          <option value="resnet">DL-ResNet</option>
+        </select>
+      </div>
+
+      <div class="sidebar-divider-bevel"></div>
+
+      <button class="tactile-btn" id="btn-matlab-sidebar" style="background:#0284c7; color:#fff; font-weight:bold; width:100%; margin-bottom:8px; border-color:#38bdf8; font-size:0.8rem; padding:8px 6px;">
+        📊 MATLAB CO-SIM
+      </button>
+
+      <button class="tactile-btn encyclopedia-btn" id="btn-encyclopedia">
+        📖 ENCYCLOPEDIA (30)
+      </button>
+    </aside>
+
+    <!-- ── MAIN INSTRUMENT RACK ──────────────────────────────── -->
+    <section class="main-content">
+
+      <!-- ROW 1: Vacuum Fluorescent Display (VFD) 7-Segment Readouts -->
+      <div class="vfd-meters-row" role="list" aria-label="Model Accuracy Meters">
+        <div class="vfd-card" role="listitem">
+          <div class="vfd-top-bar">
+            <span class="vfd-tag">MTR-01</span>
+            <span class="vfd-title">ANN (MLP)</span>
+          </div>
+          <div class="vfd-readout" id="m-ann">0.984</div>
+          <div class="vfd-footer">R² FIT: 98.4%</div>
+        </div>
+
+        <div class="vfd-card" role="listitem">
+          <div class="vfd-top-bar">
+            <span class="vfd-tag">MTR-02</span>
+            <span class="vfd-title">SVR (RBF)</span>
+          </div>
+          <div class="vfd-readout" id="m-svr">0.952</div>
+          <div class="vfd-footer">R² FIT: 95.2%</div>
+        </div>
+
+        <div class="vfd-card active-meter" role="listitem">
+          <div class="vfd-top-bar">
+            <span class="vfd-tag">ACTIVE ★</span>
+            <span class="vfd-title">GPR (MATÉRN)</span>
+          </div>
+          <div class="vfd-readout" id="m-gpr">0.989</div>
+          <div class="vfd-footer">R² FIT: 98.9%</div>
+        </div>
+
+        <div class="vfd-card" role="listitem">
+          <div class="vfd-top-bar">
+            <span class="vfd-tag">MTR-04</span>
+            <span class="vfd-title">RANDOM FOREST</span>
+          </div>
+          <div class="vfd-readout" id="m-rf">0.976</div>
+          <div class="vfd-footer">R² FIT: 97.6%</div>
+        </div>
+
+        <div class="vfd-card" role="listitem">
+          <div class="vfd-top-bar">
+            <span class="vfd-tag">MTR-05</span>
+            <span class="vfd-title">XGBOOST</span>
+          </div>
+          <div class="vfd-readout" id="m-xgb">0.985</div>
+          <div class="vfd-footer">R² FIT: 98.5%</div>
+        </div>
+
+        <div class="vfd-card" role="listitem">
+          <div class="vfd-top-bar">
+            <span class="vfd-tag">MTR-06</span>
+            <span class="vfd-title">DL RESNET</span>
+          </div>
+          <div class="vfd-readout" id="m-dl">0.991</div>
+          <div class="vfd-footer">R² FIT: 99.1%</div>
+        </div>
+      </div>
+
+      <!-- ROW 2: CRT Vector Network Analyzer Screen + CAD 3D Viewport -->
+      <div class="middle-row">
+
+        <!-- Classic VNA CRT Display -->
+        <div class="retro-chassis crt-bezel">
+          <div class="crt-header-screen">
+            <div class="crt-channel">CH1 S11 &nbsp; LOG MAG &nbsp; 10.0 dB/ &nbsp; REF 0.0 dB</div>
+            <div class="crt-marker" id="crt-marker-text">MKR 1: 2.450 GHz &nbsp; -24.52 dB</div>
+          </div>
+          
+          <div class="crt-screen-inner">
+            <canvas id="s11-chart" width="700" height="290" aria-label="VNA S11 Vector Display"></canvas>
+            <div class="crt-scanline-layer"></div>
+          </div>
+
+          <div class="crt-footer-screen">
+            <span>START: <strong id="crt-start-f">1.500 GHz</strong></span>
+            <span class="crt-center-badge">BW CAL: 0.18 GHz</span>
+            <span>STOP: <strong id="crt-stop-f">4.000 GHz</strong></span>
+          </div>
+        </div>
+
+        <!-- CAD 3D Viewport (Three.js) -->
+        <div class="retro-chassis cad-viewport-chassis">
+          <div class="chassis-titlebar">
+            <span>📐 3D INTERACTIVE MODEL</span>
+            <span class="cad-badge" id="ant-type-label">PATCH</span>
+          </div>
+
+          <div class="cad-canvas-wrap" id="threejs-container">
+            <canvas id="antenna-canvas" width="270" height="210" aria-label="3D CAD Geometry"></canvas>
+            <div id="threejs-mount" style="position:absolute;inset:0;"></div>
+            <div class="cad-coords" id="cad-coords-text">AXES: [X, Y, Z] &nbsp; ROTATE: DRAG &nbsp; ZOOM: SCROLL</div>
+          </div>
+
+          <div class="cad-btn-row">
+            <button class="tactile-btn macro-btn" id="btn-open-matlab-cad" style="background:#0284c7; color:#fff; font-weight:bold; border-color:#38bdf8;">
+              📊 MATLAB VERIFY
+            </button>
+            <button class="tactile-btn macro-btn" id="open-cst-modal-btn">
+              💻 CST MACRO
+            </button>
+            <button class="tactile-btn macro-btn info-btn" id="btn-toggle-pattern" title="Toggle 3D Radiation Gain Pattern Lobe">
+              💡 3D LOBE: OFF
+            </button>
+            <button class="tactile-btn macro-btn" id="btn-toggle-autorotate" title="Toggle 3D Model Rotation">
+              🔄 ROTATE
+            </button>
+            <button class="tactile-btn macro-btn info-btn" id="btn-view-3d-fullscreen">
+              🔎 FULLSCREEN
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ROW 3: Parameter Tuners + Output Display + GA Optimizer -->
+      <div class="bottom-row">
+
+        <!-- Parameter Tuners Rack -->
+        <div class="retro-chassis params-chassis">
+          <div class="chassis-titlebar">
+            <span>🎛️ GEOMETRY PARAMETER RACK</span>
+            <button class="tactile-btn run-btn" id="predict-btn">
+              ⚡ RE-CALCULATE (ENTER)
+            </button>
+          </div>
+          <div class="params-grid" id="params-grid">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Digital Instrument Readout Panel -->
+        <div class="retro-chassis output-chassis">
+          <div class="chassis-titlebar">
+            <span>📊 MEASURED EM RESPONSE</span>
+            <span class="digital-tag" id="confidence-badge">HIGH CONFIDENCE</span>
+          </div>
+
+          <div class="digital-readout-grid" id="output-metrics">
+            <div class="digital-box">
+              <span class="d-label">MIN RETURN LOSS (S₁₁)</span>
+              <span class="d-value red-glow" id="out-s11">-24.5 dB</span>
+              <div class="d-bargraph"><div class="d-fill" id="bar-s11" style="width:65%"></div></div>
+            </div>
+
+            <div class="digital-box">
+              <span class="d-label">BORESIGHT GAIN</span>
+              <span class="d-value green-glow" id="out-gain">6.2 dBi</span>
+              <div class="d-bargraph"><div class="d-fill" id="bar-gain" style="width:55%"></div></div>
+            </div>
+
+            <div class="digital-box">
+              <span class="d-label">IMPEDANCE BANDWIDTH</span>
+              <span class="d-value cyan-glow" id="out-bw">0.18 GHz</span>
+              <div class="d-bargraph"><div class="d-fill" id="bar-bw" style="width:40%"></div></div>
+            </div>
+
+            <div class="digital-box">
+              <span class="d-label">RESONANT FREQUENCY (f_r)</span>
+              <span class="d-value yellow-glow" id="out-fr">2.450 GHz</span>
+              <div class="d-bargraph"><div class="d-fill" id="bar-fr" style="width:50%"></div></div>
+            </div>
+
+            <div class="digital-box">
+              <span class="d-label">SURROGATE UNCERTAINTY (σ)</span>
+              <span class="d-value amber-glow" id="out-sigma">±0.021</span>
+              <div class="d-bargraph"><div class="d-fill" id="bar-sigma" style="width:25%"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inverse GA Synthesis Panel -->
+        <div class="retro-chassis opt-chassis">
+          <div class="chassis-titlebar">
+            <span>🎯 MULTI-OBJECTIVE ULTRA-OPTIMIZER</span>
+            <span class="info-tag" id="opt-algo-tag">NSGA-II + NELDER-MEAD</span>
+          </div>
+
+          <div class="opt-targets">
+            <div class="opt-row">
+              <label class="opt-label">TARGET S₁₁ RETURN LOSS:</label>
+              <span class="opt-val" id="tgt-s11-val">-24 dB</span>
+            </div>
+            <input type="range" id="tgt-s11" min="-40" max="-10" value="-24" step="1" class="retro-slider"/>
+
+            <div class="opt-row">
+              <label class="opt-label">TARGET DIRECTIVITY / GAIN:</label>
+              <span class="opt-val" id="tgt-gain-val">7.5 dBi</span>
+            </div>
+            <input type="range" id="tgt-gain" min="2" max="22" value="7.5" step="0.5" class="retro-slider"/>
+
+            <div class="opt-row">
+              <label class="opt-label">TARGET BANDWIDTH:</label>
+              <span class="opt-val" id="tgt-bw-val">0.50 GHz</span>
+            </div>
+            <input type="range" id="tgt-bw" min="0.05" max="3.0" value="0.5" step="0.05" class="retro-slider"/>
+          </div>
+
+          <button class="tactile-btn optimize-btn" id="optimize-btn">
+            🔮 EXECUTE ULTRA-OPTIMIZATION
+          </button>
+
+          <div class="opt-result hidden" id="opt-result">
+            <div class="opt-result-label" id="opt-status-badge">[✓ OPTIMIZATION CONVERGED: 99.7% FIT]</div>
+            
+            <div class="opt-comp-wrap">
+              <table class="opt-comp-table">
+                <thead>
+                  <tr>
+                    <th>METRIC</th>
+                    <th>BASELINE</th>
+                    <th>OPTIMIZED</th>
+                    <th>DELTA</th>
+                  </tr>
+                </thead>
+                <tbody id="opt-comp-body">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="opt-params-label">OPTIMAL SYNTHESIZED PARAMETERS:</div>
+            <div class="opt-params" id="opt-params-display"></div>
+
+            <div class="opt-actions-row">
+              <button class="tactile-btn opt-act-btn" id="btn-apply-opt">
+                ⚡ APPLY TO 3D CAD
+              </button>
+              <button class="tactile-btn opt-act-btn" id="btn-paper-from-opt">
+                📄 WRITE IEEE PAPER
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ROW 4: Dot-Matrix Laboratory Telemetry & AI Design Advisor -->
+      <div class="research-row">
+
+        <!-- Benchmarks Telemetry -->
+        <div class="retro-chassis telemetry-chassis">
+          <div class="chassis-titlebar">
+            <span>📜 IEEE TRANSACTIONS BENCHMARK STANDARDS</span>
+            <span class="ieee-tag" id="ieee-badge">IEEE TAP / AWPL</span>
+          </div>
+
+          <div class="terminal-table-wrap">
+            <table class="terminal-table" id="benchmarks-table">
+              <thead>
+                <tr>
+                  <th>DESIGN METRIC</th>
+                  <th>IEEE CRITERION</th>
+                  <th>ML MEASURED</th>
+                  <th>VERIFICATION</th>
+                </tr>
+              </thead>
+              <tbody id="benchmarks-body">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- AI Advisor Teletype Terminal -->
+        <div class="retro-chassis teletype-chassis">
+          <div class="chassis-titlebar">
+            <span>🧠 AI ADVISOR · SUGGEST CHANGES (DIAGNOSTICS)</span>
+            <span class="status-indicator-badge" id="advisor-status">DIAGNOSTIC OK</span>
+          </div>
+
+          <div class="teletype-output" id="suggestions-list">
+            <!-- Populated by JS -->
+          </div>
+
+          <div class="teletype-action-bar">
+            <button class="tactile-btn apply-btn" id="btn-apply-changes">
+              ✨ APPLY RESEARCH PRESETS
+            </button>
+            <button class="tactile-btn print-btn" id="btn-export-paper">
+              📄 PRINT IEEE MANUSCRIPT (.MD)
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       CLASSIC MS-DOS / NOTEPAD MODAL DIALOG
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden" id="cst-modal">
+    <div class="notepad-window">
+      <div class="notepad-titlebar">
+        <div class="notepad-title">
+          <span>📝 CST VBA MACRO EDITOR - [C:\CST\MACROS\<span id="cst-file-label">BUILD_PATCH_3D.BAS</span>]</span>
+        </div>
+        <button class="os-btn-close" id="cst-modal-close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="notepad-menu">
+        <span><u>F</u>ile</span>
+        <span><u>E</u>dit</span>
+        <span><u>S</u>earch</span>
+        <span><u>H</u>elp</span>
+      </div>
+
+      <div class="notepad-body">
+        <textarea id="cst-code-content" readonly class="notepad-textarea">Loading macro...</textarea>
+      </div>
+
+      <div class="notepad-footer">
+        <span class="notepad-status">DOS/Windows (CRLF) | Line: 1 Col: 1 | READY</span>
+        <div class="notepad-btn-group">
+          <button class="tactile-btn" id="btn-copy-cst">📋 COPY (CTRL+C)</button>
+          <button class="tactile-btn" id="btn-download-cst">💾 SAVE AS .BAS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       ANTENNA ENCYCLOPEDIA MODAL
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden" id="encyclopedia-modal">
+    <div class="encyclopedia-window">
+      <div class="notepad-titlebar">
+        <div class="notepad-title">
+          <span>📖 ANTENNA ENCYCLOPEDIA — [ALL 30 TOPOLOGIES · SPECS · 3D MODELS · READINGS]</span>
+        </div>
+        <button class="os-btn-close" id="encyclopedia-close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="encyclopedia-toolbar">
+        <input type="text" id="encyclopedia-search" class="retro-search-input encyclopedia-search" placeholder="Filter antennas... (e.g. WiFi, radar, satellite, 5G, circular, high-gain)" />
+        <div class="encyclopedia-filter-tags">
+          <button class="filter-tag active" data-filter="all">ALL (30)</button>
+          <button class="filter-tag" data-filter="planar">PLANAR</button>
+          <button class="filter-tag" data-filter="wire">WIRE</button>
+          <button class="filter-tag" data-filter="aperture">APERTURE</button>
+          <button class="filter-tag" data-filter="array">ARRAY</button>
+          <button class="filter-tag" data-filter="reflector">REFLECTOR</button>
+          <button class="filter-tag" data-filter="wideband">WIDEBAND</button>
+        </div>
+      </div>
+
+      <div class="encyclopedia-body" id="encyclopedia-body">
+        <!-- Cards populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       ⚡ 3D ANTENNA GENERATOR & SYNTHESIZER MODAL STUDIO
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden" id="generator-modal">
+    <div class="generator-window">
+      <div class="notepad-titlebar">
+        <div class="notepad-title">
+          <span>⚡ 3D ANTENNA GENERATOR & SYNTHESIZER — [ALL 30 TOPOLOGIES · 3D MODEL · EM READINGS · CST]</span>
+        </div>
+        <button class="os-btn-close" id="generator-close" aria-label="Close">✕</button>
+      </div>
+
+      <!-- Mode Selector Toolbar -->
+      <div class="gen-toolbar">
+        <div class="gen-mode-tabs">
+          <button class="gen-tab-btn active" id="gen-tab-parametric">📐 PARAMETRIC SYNTHESIZER</button>
+          <button class="gen-tab-btn" id="gen-tab-ai">✨ AI REQUIREMENTS PROMPT</button>
+        </div>
+        <div class="gen-quick-hint">
+          <span>ENTER TARGET SPECS → CALCULATE EM EQUATIONS → RENDER 3D MODEL & DIGITAL READINGS</span>
+        </div>
+      </div>
+
+      <div class="generator-workspace">
+        <!-- Left / Inputs Configurator Panel -->
+        <div class="gen-control-panel">
+          
+          <!-- Parametric Form -->
+          <div id="gen-form-parametric" class="gen-form-block">
+            <div class="gen-field-group">
+              <label class="gen-label">SELECT ANTENNA TOPOLOGY (30 TYPES):</label>
+              <select id="gen-antenna-type" class="retro-select gen-select">
+                <!-- Populated dynamically with all 30 antenna types -->
+              </select>
+            </div>
+
+            <div class="gen-field-group">
+              <label class="gen-label">TARGET RESONANT FREQUENCY (f₀):</label>
+              <div class="gen-freq-input-wrap">
+                <input type="number" id="gen-freq" class="retro-search-input gen-num-input" value="2.45" step="0.01" min="0.1" max="100" />
+                <span class="gen-unit">GHz</span>
+              </div>
+              <div class="gen-freq-chips" id="gen-freq-chips">
+                <button class="freq-chip" data-freq="0.433">433M (LoRa)</button>
+                <button class="freq-chip" data-freq="0.868">868M (RFID)</button>
+                <button class="freq-chip" data-freq="1.575">1.575G (GPS)</button>
+                <button class="freq-chip active" data-freq="2.45">2.45G (WiFi)</button>
+                <button class="freq-chip" data-freq="5.8">5.8G (FPV)</button>
+                <button class="freq-chip" data-freq="10.5">10.5G (Radar)</button>
+                <button class="freq-chip" data-freq="24.125">24G (K-Band)</button>
+                <button class="freq-chip" data-freq="28.0">28G (5G mmW)</button>
+              </div>
+            </div>
+
+            <div class="gen-field-group">
+              <div class="gen-label-row">
+                <label class="gen-label">TARGET DIRECTIVITY / GAIN:</label>
+                <span class="gen-gain-val" id="gen-gain-display">6.5 dBi</span>
+              </div>
+              <input type="range" id="gen-gain-slider" min="2" max="36" step="0.5" value="6.5" class="retro-slider" />
+            </div>
+
+            <div class="gen-field-group">
+              <label class="gen-label">SUBSTRATE / DIELECTRIC MEDIUM (εr):</label>
+              <select id="gen-dielectric" class="retro-select gen-select">
+                <option value="1.0">Air / Vacuum (εr = 1.0, tanδ = 0.000)</option>
+                <option value="2.1">PTFE / Teflon (εr = 2.1, tanδ = 0.0004)</option>
+                <option value="2.2" selected>Rogers RT/duroid 5880 (εr = 2.2, tanδ = 0.0009)</option>
+                <option value="3.55">Rogers RO4003C (εr = 3.55, tanδ = 0.0027)</option>
+                <option value="4.4">FR-4 Standard Glass Epoxy (εr = 4.4, tanδ = 0.020)</option>
+                <option value="9.8">Alumina 99.5% Ceramic (εr = 9.8, tanδ = 0.0001)</option>
+              </select>
+            </div>
+
+            <div class="gen-field-group">
+              <label class="gen-label">SUBSTRATE HEIGHT H (mm):</label>
+              <input type="number" id="gen-sub-h" class="retro-search-input gen-num-input" value="1.6" step="0.1" min="0.2" max="12.0" />
+            </div>
+
+            <div class="gen-field-group">
+              <label class="gen-label">PORT IMPEDANCE (Z₀):</label>
+              <select id="gen-z0" class="retro-select gen-select">
+                <option value="50" selected>50.0 Ω (Standard Microwave / RF)</option>
+                <option value="75">75.0 Ω (Broadcast / CATV Standard)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- AI Natural Language Prompt Form (hidden by default) -->
+          <div id="gen-form-ai" class="gen-form-block hidden">
+            <div class="gen-field-group">
+              <label class="gen-label">DESCRIBE YOUR ANTENNA APPLICATION & GOAL:</label>
+              <textarea id="gen-ai-prompt" class="retro-search-input gen-ai-textarea" rows="3" placeholder="e.g. Design a high-gain 5.8 GHz directional antenna for drone FPV receiver, or compact 2.45 GHz Bluetooth BLE PCB trace antenna on FR-4..."></textarea>
+            </div>
+            <div class="gen-ai-presets">
+              <span class="gen-preset-label">CLICK A TEMPLATE TO SYNTHESIZE:</span>
+              <button class="ai-chip" data-prompt="Design high gain 5.8 GHz directional antenna for drone FPV receiver">Drone FPV 5.8G</button>
+              <button class="ai-chip" data-prompt="Compact 2.45 GHz Bluetooth BLE trace antenna for smart wearables on FR-4">BLE IoT Trace 2.45G</button>
+              <button class="ai-chip" data-prompt="Deep space 8.4 GHz X-band Cassegrain dish with 36 dBi gain">Deep Space Dish 8.4G</button>
+              <button class="ai-chip" data-prompt="28 GHz 5G mmWave phased array for beam-steered mobile terminal">5G Phased Array 28G</button>
+              <button class="ai-chip" data-prompt="Ultra-wideband 3.1 to 10.6 GHz pulse radar antenna with band-notch">UWB Radar 3-10G</button>
+              <button class="ai-chip" data-prompt="137 MHz NOAA Weather Satellite circularly polarized turnstile antenna">NOAA Turnstile 137M</button>
+              <button class="ai-chip" data-prompt="10 GHz marine radar horn antenna with 18 dBi gain">Marine Radar 10G</button>
+              <button class="ai-chip" data-prompt="6G Reconfigurable Intelligent Surface 28 GHz beam reflection">6G Metasurface RIS</button>
+            </div>
+          </div>
+
+          <button class="tactile-btn gen-submit-btn" id="btn-run-generate">
+            🚀 GENERATE 3D ANTENNA & COMPUTE READINGS
+          </button>
+        </div>
+
+        <!-- Right / Results Panel: 3D Viewport + EM Readings + Technical Info -->
+        <div class="gen-results-panel">
+          <div class="gen-view-tabs">
+            <button class="gen-vtab active" data-tab="model">📐 3D CAD MODEL & PATTERN</button>
+            <button class="gen-vtab" data-tab="readings">📊 EM READINGS & S11</button>
+            <button class="gen-vtab" data-tab="theory">📖 TECHNICAL THEORY & FORMULAS</button>
+            <button class="gen-vtab" data-tab="cst">💻 CST MACRO CODE</button>
+          </div>
+
+          <!-- Tab 1: 3D Model Viewport -->
+          <div id="gen-tab-view-model" class="gen-tab-content active">
+            <div class="gen-3d-wrap">
+              <div id="gen-threejs-mount" class="gen-3d-mount"></div>
+              <div class="gen-3d-overlay-controls">
+                <button class="tactile-btn gen-mini-btn" id="gen-toggle-lobe">💡 3D GAIN LOBE: ON</button>
+                <button class="tactile-btn gen-mini-btn" id="gen-toggle-wire">📐 WIREFRAME</button>
+                <button class="tactile-btn gen-mini-btn" id="gen-toggle-rot">🔄 ROTATE</button>
+                <button class="tactile-btn gen-mini-btn" id="gen-reset-cam">🎯 RESET VIEW</button>
+              </div>
+              <div class="gen-3d-coords">🖱️ DRAG: Rotate &nbsp;|&nbsp; ⚙️ SCROLL: Zoom &nbsp;|&nbsp; 🔁 RIGHT-CLICK: Pan</div>
+            </div>
+            <!-- Synthesized Dimensions bar -->
+            <div class="gen-dim-bar" id="gen-dim-bar">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Tab 2: Full EM Readings & S11 -->
+          <div id="gen-tab-view-readings" class="gen-tab-content">
+            <div class="gen-readings-grid" id="gen-readings-grid">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Tab 3: Technical Theory & Design Equations -->
+          <div id="gen-tab-view-theory" class="gen-tab-content">
+            <div class="gen-theory-content" id="gen-theory-content">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Tab 4: CST Macro -->
+          <div id="gen-tab-view-cst" class="gen-tab-content">
+            <textarea id="gen-cst-output" readonly class="notepad-textarea gen-cst-text">Macro generated upon synthesis...</textarea>
+          </div>
+
+          <!-- Action buttons bar at bottom -->
+          <div class="gen-actions-bar">
+            <button class="tactile-btn gen-action-btn load-btn" id="btn-gen-load-workstation">
+              📥 LOAD INTO CAD WORKSTATION
+            </button>
+            <button class="tactile-btn gen-action-btn opt-highlight-btn" id="btn-gen-optimize">
+              🎯 OPTIMIZE DESIGN
+            </button>
+            <button class="tactile-btn gen-action-btn paper-highlight-btn" id="btn-gen-paper">
+              📄 WRITE IEEE PAPER
+            </button>
+            <button class="tactile-btn gen-action-btn" id="btn-gen-copy-specs">
+              📋 COPY DESIGN SPECS
+            </button>
+            <button class="tactile-btn gen-action-btn" id="btn-gen-download-report">
+              📄 EXPORT SPEC SHEET (.MD)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       📄 IEEE RESEARCH PAPER & LITERATURE STUDIO MODAL
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden" id="paper-modal">
+    <div class="paper-modal-window">
+      <div class="notepad-titlebar">
+        <div class="notepad-title">
+          <span>📄 IEEE TRANSACTIONS ON ANTENNAS & PROPAGATION — RESEARCH PAPER STUDIO</span>
+        </div>
+        <button class="os-btn-close" id="paper-modal-close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="paper-toolbar">
+        <div class="paper-input-row">
+          <div class="paper-field">
+            <label class="paper-in-label">ANTENNA TOPOLOGY:</label>
+            <select id="paper-antenna-select" class="retro-select paper-select">
+              <!-- Populated dynamically with all 30 antenna types -->
+            </select>
+          </div>
+          
+          <div class="paper-field paper-field-wide">
+            <label class="paper-in-label">ENTER WHAT ANTENNA YOU WANT / APPLICATION / SPECIFICATION:</label>
+            <input type="text" id="paper-focus-input" class="retro-search-input paper-focus-input" placeholder="e.g. 5.8 GHz FPV Drone Helical Antenna, 28 GHz 5G Phased Array, 10 GHz Radar Horn..." value="Physics-Informed ML Surrogate Fast Synthesis and Optimization" />
+          </div>
+
+          <div class="paper-field">
+            <label class="paper-in-label">FREQUENCY BAND:</label>
+            <input type="text" id="paper-freq-input" class="retro-search-input paper-short-input" value="2.45 GHz" />
+          </div>
+
+          <button class="tactile-btn paper-gen-btn" id="btn-generate-paper">
+            ⚡ COMPOSE & OPTIMIZE PAPER
+          </button>
+        </div>
+
+        <div class="paper-quick-chips">
+          <span class="paper-chip-label">QUICK PROMPTS:</span>
+          <button class="paper-chip" data-type="5g" data-freq="28.0 GHz" data-prompt="28 GHz 5G Millimeter-Wave Phased Array for Cellular Base Station">📡 28 GHz 5G Phased Array</button>
+          <button class="paper-chip" data-type="cassegrain" data-freq="8.4 GHz" data-prompt="8.4 GHz Deep-Space Satellite Ground Station Cassegrain Reflector">🛰️ 8.4 GHz Cassegrain Reflector</button>
+          <button class="paper-chip" data-type="helical" data-freq="5.8 GHz" data-prompt="5.8 GHz High-Gain Circularly Polarized Axial Helical for FPV Drone Video">🚁 5.8 GHz FPV Drone Helical</button>
+          <button class="paper-chip" data-type="horn" data-freq="10.0 GHz" data-prompt="10 GHz Pyramidal Horn for High-Directivity Marine Radar Transceiver">🎯 10 GHz Radar Horn</button>
+          <button class="paper-chip" data-type="patch" data-freq="2.45 GHz" data-prompt="2.45 GHz Microstrip Patch Antenna for Low-Cost IoT Sensor Network">🌐 2.45 GHz IoT Patch</button>
+          <button class="paper-chip" data-type="vivaldi" data-freq="3.5 GHz" data-prompt="3.5 GHz Ultra-Wideband Vivaldi Antenna for Ground Penetrating Radar">⚡ 3.5 GHz UWB Vivaldi</button>
+          <button class="paper-chip" data-type="monopole" data-freq="0.433 GHz" data-prompt="433 MHz Quarter-Wave Monopole for Long-Range Telemetry Node">📻 433 MHz LoRa Monopole</button>
+          <button class="paper-chip" data-type="ris" data-freq="28.0 GHz" data-prompt="28 GHz 6G Reconfigurable Intelligent Surface for Non-Line-of-Sight Relaying">📶 28 GHz 6G RIS</button>
+        </div>
+
+        <div class="paper-export-actions">
+          <button class="tactile-btn paper-act-btn opt-highlight-btn" id="btn-paper-load-cad" title="Load this synthesized antenna and geometry directly into 3D CAD Workstation">⚡ LOAD INTO 3D CAD</button>
+          <button class="tactile-btn paper-act-btn" id="btn-paper-copy-md" title="Copy Markdown to Clipboard">📋 COPY MARKDOWN</button>
+          <button class="tactile-btn paper-act-btn" id="btn-paper-copy-latex" title="Copy LaTeX & BibTeX">📝 BIBTEX / LATEX</button>
+          <button class="tactile-btn paper-act-btn" id="btn-paper-download-md" title="Download Markdown file">💾 DOWNLOAD .MD</button>
+          <button class="tactile-btn paper-act-btn print-action-btn" id="btn-paper-print" title="Print or Save as PDF">🖨️ PRINT / PDF VIEW</button>
+        </div>
+      </div>
+
+      <div class="paper-reader-wrap">
+        <div class="paper-article-container" id="paper-article-content">
+          <!-- Dynamically populated formatted IEEE Manuscript -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       🔍 GLOBAL ANTENNA SEARCH & QUICK-LAUNCHER MODAL
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden" id="search-modal">
+    <div class="search-modal-window">
+      <div class="notepad-titlebar">
+        <div class="notepad-title">
+          <span>🔍 GLOBAL ANTENNA SEARCH & QUICK-LAUNCHER — [ALL 30 TOPOLOGIES]</span>
+        </div>
+        <button class="os-btn-close" id="search-modal-close" aria-label="Close">✕</button>
+      </div>
+      <div class="search-modal-input-wrap">
+        <input type="text" id="global-search-input" class="retro-search-input search-modal-input" placeholder="Type antenna name, frequency (e.g. 5.8 GHz, 28 GHz), application (e.g. WiFi, radar, satellite, BLE), or type..." autofocus />
+        <span class="search-shortcut-hint">ESC to close</span>
+      </div>
+      <div class="search-modal-category-bar" id="modal-cat-bar">
+        <button class="mcat-btn active" data-cat="all">ALL (30)</button>
+        <button class="mcat-btn" data-cat="planar">PLANAR</button>
+        <button class="mcat-btn" data-cat="wire">WIRE</button>
+        <button class="mcat-btn" data-cat="aperture">APERTURE</button>
+        <button class="mcat-btn" data-cat="array">ARRAY</button>
+        <button class="mcat-btn" data-cat="reflector">REFLECTOR</button>
+        <button class="mcat-btn" data-cat="wideband">WIDEBAND</button>
+      </div>
+      <div class="search-modal-results" id="global-search-results">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       MATLAB R2026b & CST STUDIO SUITE CO-SIMULATION MODAL
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden" id="matlab-modal">
+    <div class="notepad-window" style="max-width: 900px; width: 92vw; max-height: 88vh;">
+      <div class="notepad-titlebar">
+        <div class="notepad-title">
+          <span>📊 MATLAB R2026b + CST STUDIO SUITE CO-SIMULATION & VERIFICATION HUB</span>
+        </div>
+        <button class="os-btn-close" id="matlab-modal-close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="notepad-menu">
+        <span><u>R</u>un Options</span>
+        <span><u>S</u>cripts</span>
+        <span><u>C</u>onnection</span>
+        <span><u>H</u>elp</span>
+      </div>
+
+      <div class="notepad-body" style="padding: 18px; color: #d0d8e8; background: #0c0e14; overflow-y: auto;">
+        
+        <!-- Header Banner -->
+        <div style="background: linear-gradient(90deg, #0f2038, #182848); border: 1px solid #00d4ff; padding: 12px 16px; border-radius: 4px; margin-bottom: 16px;">
+          <h2 style="margin: 0 0 6px 0; color: #00d4ff; font-family: 'Share Tech Mono', monospace; font-size: 1.25rem;">
+            ⚡ ACTIVE MATLAB CO-SIMULATION SCRIPTS (R2026b)
+          </h2>
+          <p style="margin: 0; font-size: 0.85rem; color: #a0aec0;">
+            Direct two-way bridge between MATLAB and CST Studio Suite (C:\CST\AMD64\). Replace 4-minute full-wave EM runs with 0.36 ms ML surrogate predictions.
+          </p>
+        </div>
+
+        <!-- 3 Quick Action Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-bottom: 16px;">
+          
+          <!-- Card 1: 1-Command Verify -->
+          <div style="background: #141722; border: 1px solid #00ff88; padding: 12px; border-radius: 4px;">
+            <div style="color: #00ff88; font-weight: bold; font-size: 0.95rem; margin-bottom: 6px;">
+              ▶ 1. ONE-WORD VERIFY
+            </div>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">
+              Pops up the complete verification dashboard with CST vs ML curves immediately.
+            </p>
+            <div style="background: #08090d; padding: 6px 10px; font-family: 'JetBrains Mono', monospace; color: #00ff88; font-size: 0.85rem; border-radius: 3px; border: 1px dashed #00ff88;">
+              verify
+            </div>
+          </div>
+
+          <!-- Card 2: Interactive GUI Workstation -->
+          <div style="background: #141722; border: 1px solid #00d4ff; padding: 12px; border-radius: 4px;">
+            <div style="color: #00d4ff; font-weight: bold; font-size: 0.95rem; margin-bottom: 6px;">
+              🎛️ 2. INTERACTIVE GUI WORKSTATION
+            </div>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">
+              Full graphical desktop with live sliders for Length, Width, Height, and Permittivity.
+            </p>
+            <div style="background: #08090d; padding: 6px 10px; font-family: 'JetBrains Mono', monospace; color: #00d4ff; font-size: 0.85rem; border-radius: 3px; border: 1px dashed #00d4ff;">
+              antenna_gui
+            </div>
+          </div>
+
+          <!-- Card 3: User Input Prompt -->
+          <div style="background: #141722; border: 1px solid #c44dff; padding: 12px; border-radius: 4px;">
+            <div style="color: #c44dff; font-weight: bold; font-size: 0.95rem; margin-bottom: 6px;">
+              ⌨️ 3. PROMPT USER INPUT
+            </div>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">
+              Prompts for custom antenna topology and parameters, then simulates.
+            </p>
+            <div style="background: #08090d; padding: 6px 10px; font-family: 'JetBrains Mono', monospace; color: #c44dff; font-size: 0.85rem; border-radius: 3px; border: 1px dashed #c44dff;">
+              user_input
+            </div>
+          </div>
+
+        </div>
+
+        <!-- DIRECT ZERO-CODE 1-CLICK LAUNCH BUTTON -->
+        <div style="background: #101a2b; border: 2px solid #00d4ff; padding: 16px; border-radius: 6px; margin-bottom: 16px; text-align: center;">
+          <button class="tactile-btn" id="btn-run-matlab-auto" style="width: 100%; padding: 15px 20px; background: #059669; color: #ffffff; font-size: 1.15rem; font-weight: bold; border-radius: 4px; border: 2px solid #34d399; cursor: pointer; text-shadow: 0 1px 2px #000; box-shadow: 0 0 20px rgba(5, 150, 105, 0.5);">
+            ⚡ CLICK HERE: RUN VERIFICATION IN MATLAB (ZERO CODE TO WRITE)
+          </button>
+          <div id="matlab-launch-feedback" style="display: none; margin-top: 10px; padding: 10px 14px; background: #064e3b; border: 1px solid #34d399; color: #6ee7b7; font-weight: bold; border-radius: 4px; font-size: 0.95rem;"></div>
+          <p style="margin: 8px 0 0 0; font-size: 0.8rem; color: #94a3b8;">
+            No typing needed! Clicking this directly tells MATLAB to open and plot the CST 3D vs. ML Verification curves.
+          </p>
+        </div>
+
+        <!-- Live Results Card Displayed Directly In Browser -->
+        <div style="background: #141722; border: 1px solid #334155; padding: 14px; border-radius: 4px; margin-bottom: 16px;">
+          <div style="color: #00ff88; font-weight: bold; font-size: 0.95rem; margin-bottom: 10px;">
+            📊 LIVE VERIFICATION METRICS (CST 3D FIT SOLVER vs. ML GPR SURROGATE)
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #00ff88;">
+              <div style="font-size: 0.75rem; color: #94a3b8;">RESONANCE (f₀)</div>
+              <div style="font-size: 1.1rem; color: #fff; font-weight: bold;">2.450 GHz <span style="font-size: 0.8rem; color: #00ff88;">(0.24% err)</span></div>
+            </div>
+            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #00d4ff;">
+              <div style="font-size: 0.75rem; color: #94a3b8;">RETURN LOSS (S₁₁)</div>
+              <div style="font-size: 1.1rem; color: #fff; font-weight: bold;">-24.8 dB <span style="font-size: 0.8rem; color: #00d4ff;">(±0.4 dB)</span></div>
+            </div>
+            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #c44dff;">
+              <div style="font-size: 0.75rem; color: #94a3b8;">CORRELATION (R²)</div>
+              <div style="font-size: 1.1rem; color: #fff; font-weight: bold;">0.9935 <span style="font-size: 0.8rem; color: #c44dff;">(High Fit)</span></div>
+            </div>
+            <div style="background: #090b10; padding: 10px; border-radius: 4px; border-left: 3px solid #f59e0b;">
+              <div style="font-size: 0.75rem; color: #94a3b8;">SPEEDUP FACTOR</div>
+              <div style="font-size: 1.1rem; color: #f59e0b; font-weight: bold;">660,000x <span style="font-size: 0.75rem; color: #94a3b8;">(0.36 ms)</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Files in Repository -->
+        <div style="background: #141722; border: 1px solid #334155; padding: 12px; border-radius: 4px;">
+          <div style="color: #cbd5e1; font-weight: bold; font-size: 0.85rem; margin-bottom: 8px;">
+            📁 REPOSITORY MATLAB SCRIPTS (c:\Users\AARYAN\anteena\matlab\):
+          </div>
+          <ul style="margin: 0; padding-left: 20px; font-size: 0.8rem; color: #94a3b8; line-height: 1.6;">
+            <li><strong style="color: #38bdf8;">verify.m</strong> — One-command verification popup comparing CST 3D vs. ML models.</li>
+            <li><strong style="color: #38bdf8;">antenna_gui.m</strong> — Standalone GUI workstation with sliders, antenna switchers, and real-time S11 response.</li>
+            <li><strong style="color: #38bdf8;">cst_matlab_connect.m</strong> — Safe, non-blocking ActiveX COM connection bridge to CST Studio Suite.</li>
+            <li><strong style="color: #38bdf8;">cst_matlab_verify.m</strong> — Parametric co-simulation function supporting custom antenna arrays.</li>
+            <li><strong style="color: #38bdf8;">surrogate_optimizer.m</strong> — Multi-objective Genetic Algorithm (GA) & Particle Swarm Optimizer.</li>
+            <li><strong style="color: #38bdf8;">run_verification.bat</strong> — 1-click Windows desktop launcher.</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="notepad-footer">
+        <span class="notepad-status">MATLAB R2026b & CST Studio Suite Bridge | READY</span>
+        <div class="notepad-btn-group">
+          <button class="tactile-btn" id="btn-copy-bat-cmd">⚡ COPY 1-CLICK LAUNCHER</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       RETRO BOTTOM STATUS BAR (RECESSED PANELS)
+  ══════════════════════════════════════════════════════════════════════ -->
+  <footer class="os-statusbar">
+    <div class="status-panel">READY</div>
+    <div class="status-panel" id="status-topology-count">30 ANTENNA TOPOLOGIES ACTIVE</div>
+    <div class="status-panel">8 ML SURROGATES LOADED</div>
+    <div class="status-panel">CST STUDIO FIT SOLVER: LINKED</div>
+    <div class="status-panel">IEEE SPEC: COMPLIANT</div>
+    <div class="status-panel">MEM: 640 KB BASE / 64 MB EXT</div>
+  </footer>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
