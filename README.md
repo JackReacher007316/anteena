@@ -121,6 +121,17 @@ CST Parameter Sweep -> Export S-params / Gain Data
    Verify Best Design in CST (Full-wave)
 ```
 
+## Trained antenna-image classifier
+
+The Review Desk now has an optional **trained image model** backed by the local Anteena bridge. It is a supervised HOG-feature + RBF-SVM classifier; it runs on the user's PC, not GitHub Pages. The repository has no labeled antenna-photo dataset, so it cannot honestly ship with trained weights or claim accuracy yet.
+
+1. Start the local bridge: `python dashboard/bridge_server.py`.
+2. In AI Review Desk, upload each example, select its known correct type, and click **SAVE EXAMPLE**. Images are saved only under `data/antenna_images/<type>/` on that PC.
+3. Collect at least **5 images for each of at least 2 classes** (varied views/backgrounds are strongly recommended), then click **TRAIN MODEL ON THIS PC**. Or run `python python/train_antenna_image_classifier.py --dataset data/antenna_images` after `pip install -r python/requirements.txt`.
+4. Click **CLASSIFY IMAGE WITH TRAINED MODEL**. The model reports a prediction, top alternatives, and a holdout accuracy estimate. Its model files stay under ignored `data/models/` and are not committed.
+
+This is a real supervised model pipeline, not a pretrained foundation model; prediction quality depends on the labeled examples supplied by the owner. The browser-only keyword guess remains a fallback, and an image alone cannot yield an RF/S11 response.
+
 ## Browser AI Review Desk, Uploads & Google sign-in
 
 Open **AI Review Desk** in the dashboard and upload an antenna image/file, or optionally add notes. Uploading an image automatically runs analysis and produces a local silhouette-profile graph; CSV files with frequency/S11 columns produce the RF sweep graph. A browser-local assistant answers questions about the review, and a keyword classifier estimates type from descriptions, filenames, and readable document/code text (it does not recognize image pixels). Download the detailed report or standalone JavaScript classifier. Files are read locally in the browser (12 MB per-file limit); DOCX extraction uses Mammoth.js. Use **SEND CUSTOM ANALYSIS TO MATLAB** to send the written requirements and extracted sweep values to the local MATLAB bridge. Uploaded binaries/source files are not sent to MATLAB.

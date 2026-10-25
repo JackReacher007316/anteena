@@ -1156,6 +1156,16 @@
           </div>
           <button class="tactile-btn" id="review-download" disabled>⬇ DOWNLOAD ANALYSIS (.MD)</button>
           <button class="tactile-btn" id="review-download-classifier" disabled>⌘ DOWNLOAD TYPE-DETECTION CODE (.JS)</button>
+          <section class="review-trained-model" aria-label="Trained antenna image AI">
+            <div class="review-agent-title">🧠 TRAINED IMAGE MODEL</div>
+            <p id="review-model-status">A supervised model runs privately on your PC through the Anteena bridge. It needs labeled antenna images before it can classify designs.</p>
+            <button class="tactile-btn" id="review-trained-classify" type="button" disabled>CLASSIFY IMAGE WITH TRAINED MODEL</button>
+            <label class="review-label" for="review-label-type">Help train it: confirm the correct type for this image</label>
+            <div class="review-chat-compose"><input id="review-label-type" type="text" maxlength="48" placeholder="Enter any antenna type, e.g. patch, Yagi, spiral" aria-label="Correct antenna type label"><button class="tactile-btn" id="review-save-example" type="button" disabled>SAVE EXAMPLE</button></div>
+            <span id="review-training-status" class="review-empty">Training examples stay on the PC running the bridge.</span>
+            <button class="tactile-btn" id="review-train-model" type="button" disabled>TRAIN MODEL ON THIS PC</button>
+            <div id="review-trained-result" class="review-trained-result" aria-live="polite"></div>
+          </section>
           <section class="review-agent" aria-label="Anteena AI assistant">
             <div class="review-agent-title">🤖 ANTEENA AI · DESIGN ASSISTANT</div>
             <div class="review-chat-log" id="review-chat-log" aria-live="polite"><div class="review-chat-message agent">Upload a design and run analysis. Then ask me about its likely antenna type, graph, measurements, or next steps.</div></div>

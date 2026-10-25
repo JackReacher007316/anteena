@@ -4797,8 +4797,17 @@ function initUploadReview() {
   const charts = document.getElementById('review-charts');
   const matlabSend = document.getElementById('review-send-matlab');
   const matlabStatus = document.getElementById('review-matlab-status');
+  const trainedClassify = document.getElementById('review-trained-classify');
+  const saveTrainingExample = document.getElementById('review-save-example');
+  const trainModelButton = document.getElementById('review-train-model');
+  const trainingLabelInput = document.getElementById('review-label-type');
+  const modelStatusEl = document.getElementById('review-model-status');
+  const trainingStatusEl = document.getElementById('review-training-status');
+  const trainedResultEl = document.getElementById('review-trained-result');
   if (!modal || !filesInput) return;
   const selectedFiles = [];
+  const isImageFile = file => !!file && (String(file.type||'').startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif|tiff?)$/i.test(file.name||''));
+  const isTrainableImage = file => !!file && (/^image\/(jpeg|png|webp|gif|bmp|tiff?)$/i.test(file.type||'') || /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(file.name||''));
   let latestMarkdown = '';
   let classifierCode = '';
   let latestMatlabPayload = null;
@@ -4822,7 +4831,7 @@ function initUploadReview() {
     }
     renderFiles();
   };
-  const hasImage=files=>Array.from(files||[]).some(f=>f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif|tiff?)$/i.test(f.name));
+  const hasImage=files=>Array.from(files||[]).some(isImageFile);
   filesInput.addEventListener('change', () => { const incoming=Array.from(filesInput.files); addFiles(incoming); filesInput.value = ''; if(hasImage(incoming))setTimeout(()=>run(),50); });
   const drop = document.getElementById('review-drop');
   ['dragenter','dragover'].forEach(t => drop?.addEventListener(t, e => { e.preventDefault(); drop.classList.add('dragover'); }));
@@ -4834,11 +4843,21 @@ function initUploadReview() {
       if (!window.mammoth) return resolve({text:'',warning:`${f.name}: DOCX parser did not load; retry online or export as .txt.`});
       f.arrayBuffer().then(arrayBuffer => mammoth.extractRawText({arrayBuffer})).then(r => resolve({text:r.value||'',warning:''})).catch(() => resolve({text:'',warning:`${f.name}: could not parse DOCX.`}));
     } else if (/\.doc$/i.test(f.name)) resolve({text:'',warning:`${f.name}: legacy .doc is unsupported; save as .docx or .txt.`});
-    else if (f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif|tiff?)$/i.test(f.name)) resolve({text:'',image:true});
+    else if (isImageFile(f)) resolve({text:'',image:true});
     else if (/\.(txt|md|py|m|js|ts|c|cpp|h|bas|vba|json|html|css|csv)$/i.test(f.name) || f.type.startsWith('text/')) {
       f.slice(0,2*1024*1024).text().then(text => resolve({text,warning:f.size>2*1024*1024?`${f.name}: only first 2 MB reviewed.`:''})).catch(()=>resolve({text:'',warning:`${f.name}: unable to read text.`}));
     } else resolve({text:'',warning:`${f.name}: unsupported format.`});
   });
+  const firstUploadedImage=()=>selectedFiles.find(isTrainableImage)||null;
+  trainingLabelInput?.addEventListener('input',()=>{saveTrainingExample.disabled=!(firstUploadedImage()&&trainingLabelInput.value.trim());});
+  const getLocalAiStatus=async()=>{
+    enableLocalBridge();
+    const base=await findBridgeNow();
+    if(base===null)throw new Error('Local Anteena bridge not found. Start python dashboard/bridge_server.py on the PC where you want to train/run the model, then allow local-network access.');
+    const response=await fetch(bridgeUrl('/api/ai/status'),{cache:'no-store'});
+    if(!response.ok)throw new Error('Image AI endpoint not available. Update the local Anteena bridge and restart it.');
+    return response.json();
+  };
   const parseMetric = (text, regex, convert = x => x) => {
     const m = text.match(regex);
     if (!m) return null;
@@ -4984,6 +5003,11 @@ function initUploadReview() {
         item.dimensions=dims;
         checks.push({ok:dims.width>0,title:`Image ${item.file.name}`,detail:dims.width?`${dims.width} × ${dims.height} px loaded; local contrast/silhouette profile extracted (${Number.isFinite(dims.foregroundRatio)?(dims.foregroundRatio*100).toFixed(1)+'%':'unavailable'} foreground estimate). This is a shape profile, not antenna topology recognition or EM simulation.`:'Image could not be decoded.'});
       }
+      const hasTrainableImage=images.some(item=>isTrainableImage(item.file));
+      trainedClassify.disabled=!hasTrainableImage;
+      saveTrainingExample.disabled=!(hasTrainableImage&&trainingLabelInput?.value.trim());
+      if(hasTrainableImage)trainedResultEl.textContent='Image ready. The trained model runs on your own PC; if no model is trained yet, save labeled examples below. Supported formats: JPEG, PNG, WebP, GIF, BMP, and TIFF.';
+      else if(images.length)trainedResultEl.textContent='The image graph is available, but the trained model accepts JPEG, PNG, WebP, GIF, BMP, or TIFF.';
       if(docs.length) checks.push({ok:allText.trim().length>40,title:'Design document',detail:allText.trim().length?`${allText.trim().length.toLocaleString()} characters extracted from ${docs.length} Word file(s).`:'No text extracted; scanned pages and legacy .doc files need OCR/conversion.'});
       if(codeFiles.length){const code=contents.filter(x=>codeFiles.includes(x)).map(x=>x.text).join('\n');checks.push({ok:!!code.trim(),title:'Source files',detail:`${codeFiles.length} source file(s), ${code.length.toLocaleString()} readable characters; source is inspected but never executed.`});if(/\b(TODO|FIXME|placeholder|not implemented)\b/i.test(code))checks.push({ok:false,title:'Unfinished code markers',detail:'TODO/FIXME/placeholder marker found.'});}
       if(trace) checks.push({ok:true,title:'Frequency sweep',detail:`${trace.f.length} CSV points parsed from ${trace.name}; minimum S11 ${Math.min(...trace.s11).toFixed(2)} dB at ${trace.f[trace.s11.indexOf(Math.min(...trace.s11))].toFixed(4)} GHz.`});
@@ -5026,7 +5050,7 @@ function initUploadReview() {
   const answerQuestion=question=>{
     const q=question.toLowerCase(), c=latestReviewContext;
     if(!c)return 'Upload a design and click Analyze first. I will use that review to answer your question.';
-    if(/type|classif|what antenna|which antenna/.test(q))return `Likely type: ${c.classification.label} (${Math.round(c.classification.confidence*100)}% keyword-match score). Evidence: ${c.classification.source||'no antenna-specific text found'}. This score is not image-recognition confidence; describe the shape or use a descriptive filename for a better guess.`;
+    if(/type|classif|what antenna|which antenna/.test(q)){const result=c.trainedClassification;if(result)return `Trained image model prediction: ${result.predicted_type} (${(result.confidence*100).toFixed(1)}% model confidence). Top classes: ${(result.top_predictions||[]).map(x=>`${x.type} ${(x.probability*100).toFixed(0)}%`).join(', ')}. ${result.warning||''}`;return `Keyword-based estimate: ${c.classification.label} (${Math.round(c.classification.confidence*100)}% heuristic score). For a proper trained image prediction, click CLASSIFY IMAGE WITH TRAINED MODEL after a local model is trained from labeled images.`;}
     if(/graph|plot|chart|curve/.test(q))return c.trace?`The S11 graph plots ${c.trace.f.length} frequency/S11 points from ${c.trace.name}. Its minimum is ${Math.min(...c.trace.s11).toFixed(2)} dB at ${c.trace.f[c.trace.s11.indexOf(Math.min(...c.trace.s11))].toFixed(4)} GHz.`:c.images.length?'The graph shown for your image is a pixel-contrast silhouette profile across image width. It is not an RF simulation. Upload a CSV with Frequency (GHz) and S11 (dB) columns for the RF response graph.':'The graph summarizes review checks. Upload a frequency/S11 CSV to get an RF sweep graph.';
     if(/s11|return loss|reflection/.test(q))return Number.isFinite(c.evidenceMetrics.s11_dB)?`The uploaded evidence has S11 ≈ ${c.evidenceMetrics.s11_dB.toFixed(2)} dB${c.trace?` near ${c.evidenceMetrics.frequency_GHz.toFixed(4)} GHz`:''}. A more negative S11 means less reflected power; around −10 dB is a common matching target, not a universal pass criterion.`:'I could not extract S11 from the files. Upload a CST/VNA sweep CSV or a report containing S11 values.';
     if(/frequency|resonan|bandwidth|\bbw\b/.test(q))return `Extracted frequency: ${Number.isFinite(c.evidenceMetrics.frequency_GHz)?c.evidenceMetrics.frequency_GHz.toFixed(4)+' GHz':'not found'}. Extracted bandwidth: ${Number.isFinite(c.evidenceMetrics.bandwidth_GHz)?c.evidenceMetrics.bandwidth_GHz.toFixed(4)+' GHz':'not found'}. Upload sweep data for more reliable values.`;
@@ -5043,6 +5067,57 @@ function initUploadReview() {
   document.getElementById('review-run')?.addEventListener('click',run);
   download.addEventListener('click',()=>{if(!latestMarkdown)return;const u=URL.createObjectURL(new Blob([latestMarkdown],{type:'text/markdown'}));const a=document.createElement('a');a.href=u;a.download='anteena-custom-review.md';a.click();URL.revokeObjectURL(u);});
   codeDownload.addEventListener('click',()=>{if(!classifierCode)return;const u=URL.createObjectURL(new Blob([classifierCode],{type:'text/javascript'}));const a=document.createElement('a');a.href=u;a.download='antenna-type-classifier.js';a.click();URL.revokeObjectURL(u);});
+  const updateTrainedModelStatus=status=>{
+    const counts=status.class_counts||{}, readyClasses=Object.values(counts).filter(n=>n>=5).length;
+    modelStatusEl.textContent=status.ready?`${status.model_name} · ${status.image_count} training images · holdout accuracy ${(100*(status.test_accuracy||0)).toFixed(1)}% (small local test set).`:status.message||'No trained model yet.';
+    trainingStatusEl.textContent=`Local labeled examples: ${Object.entries(counts).map(([k,v])=>`${k}: ${v}`).join(' · ')||'none yet'}. Need at least 5 images in each of 2+ antenna classes.`;
+    trainModelButton.disabled=readyClasses<2||status.training?.status==='running';
+    if(status.training?.status==='running')trainingStatusEl.textContent=status.training.message||'Training…';
+    if(status.training?.status==='error')trainingStatusEl.textContent=`${status.training.message} ${status.training.output||''}`;
+    if(status.training?.status==='ready')trainingStatusEl.textContent=status.training.message;
+  };
+  trainedClassify.addEventListener('click',async()=>{
+    const image=firstUploadedImage();if(!image)return;
+    trainedClassify.disabled=true;trainedClassify.textContent='CONNECTING TO TRAINED MODEL…';trainedResultEl.textContent='Checking the private model service on your PC…';
+    try{
+      const status=await getLocalAiStatus();updateTrainedModelStatus(status);
+      if(!status.ready){trainedResultEl.textContent=`No trained model is installed yet. Add labeled examples using the chooser below, then train after you have at least 5 examples for each of 2 antenna types. Training runs locally; your image is not sent to a cloud service.`;return;}
+      const response=await fetch(bridgeUrl('/api/ai/classify'),{method:'POST',headers:{'Content-Type':image.type||'application/octet-stream'},body:image});
+      const result=await response.json();if(!response.ok||!result.ready)throw new Error(result.message||'Image classification failed.');
+      if(latestReviewContext)latestReviewContext.trainedClassification=result;
+      const top=(result.top_predictions||[]).map(x=>`${x.type}: ${(x.probability*100).toFixed(1)}%`).join(' · ');
+      trainedResultEl.textContent=`TRAINED MODEL: ${result.predicted_type} (${(result.confidence*100).toFixed(1)}%)\n${top}\n${result.warning||''}`;
+      const heading=document.createElement('h4');heading.textContent='Trained image model result';
+      const paragraph=document.createElement('p');paragraph.textContent=`${result.predicted_type} · ${(result.confidence*100).toFixed(1)}% model confidence. ${result.warning||''}`;
+      const prior=reportEl.querySelector('[data-trained-model-result]');prior?.remove();const box=document.createElement('section');box.dataset.trainedModelResult='true';box.append(heading,paragraph);reportEl.prepend(box);
+      summary.innerHTML=`<span class="review-badge">MODEL RESULT</span><span>${esc(result.predicted_type)} · ${(result.confidence*100).toFixed(1)}% trained model confidence</span>`;
+    }catch(err){trainedResultEl.textContent=err.message||'Could not connect to the trained image model.';}
+    finally{trainedClassify.disabled=false;trainedClassify.textContent='🧠 CLASSIFY IMAGE WITH TRAINED MODEL';}
+  });
+  saveTrainingExample.addEventListener('click',async()=>{
+    const image=firstUploadedImage(),label=trainingLabelInput.value.trim();if(!image||!label){trainingStatusEl.textContent='Choose an image and enter its correct antenna class first.';return;}
+    saveTrainingExample.disabled=true;trainingStatusEl.textContent='Saving your labeled image to the local training folder…';
+    try{
+      await getLocalAiStatus();
+      const response=await fetch(`${bridgeUrl('/api/ai/training-image')}?label=${encodeURIComponent(label)}`,{method:'POST',headers:{'Content-Type':image.type||'application/octet-stream'},body:image});
+      const result=await response.json();if(!response.ok||!result.saved)throw new Error(result.message||'Could not save training example.');
+      const status=await getLocalAiStatus();updateTrainedModelStatus(status);
+      trainingStatusEl.textContent=`Saved one confirmed ${result.label} example on this PC (${result.examples_for_label} in that class). Add diverse images for at least two types.`;
+    }catch(err){trainingStatusEl.textContent=err.message||'Could not save the training image.';}
+    finally{saveTrainingExample.disabled=!(firstUploadedImage()&&trainingLabelInput.value.trim());}
+  });
+  trainModelButton.addEventListener('click',async()=>{
+    trainModelButton.disabled=true;trainingStatusEl.textContent='Starting local supervised training…';
+    try{
+      const base=await getLocalAiStatus();
+      if(Object.values(base.class_counts||{}).filter(n=>n>=5).length<2)throw new Error('Add at least 5 labeled images for each of 2 or more antenna types before training.');
+      const response=await fetch(bridgeUrl('/api/ai/train'),{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const ack=await response.json();if(!response.ok&&response.status!==202)throw new Error(ack.message||'Training could not start.');
+      trainingStatusEl.textContent=ack.message||'Training is running locally…';
+      const started=Date.now();
+      const poll=async()=>{try{const status=await getLocalAiStatus();updateTrainedModelStatus(status);if(status.training?.status==='running'&&Date.now()-started<900000){setTimeout(poll,2500);return;}if(status.ready){trainingStatusEl.textContent=`Training complete. ${status.image_count} labeled examples; holdout accuracy ${(100*(status.test_accuracy||0)).toFixed(1)}%. Click CLASSIFY IMAGE WITH TRAINED MODEL.`;trainedClassify.disabled=false;}else if(status.training?.status==='error'){trainingStatusEl.textContent=`${status.training.message} ${status.training.output||''}`;}else if(Date.now()-started>=900000)trainingStatusEl.textContent='Training is still running; check status again shortly.';}catch(err){trainingStatusEl.textContent=err.message;}};setTimeout(poll,1500);
+    }catch(err){trainingStatusEl.textContent=err.message||'Training failed.';trainModelButton.disabled=false;}
+  });
   matlabSend.addEventListener('click',async()=>{
     if(!latestMatlabPayload)return;
     matlabSend.disabled=true;matlabSend.textContent='CONNECTING TO LOCAL MATLAB…';matlabStatus.textContent='Looking for the MATLAB bridge on this PC. Allow local-network access if prompted.';
