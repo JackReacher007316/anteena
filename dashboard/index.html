@@ -1128,25 +1128,25 @@
         <button class="os-btn-close" id="review-close" aria-label="Close">✕</button>
       </header>
       <div class="review-intro">
-        <strong>Describe the result you expect, add your design files, then run a detailed review.</strong>
-        <span>Accepts custom antenna types. Files are analyzed in-browser; optional MATLAB connection sends your written requirements and extracted numeric sweep data to your local bridge, not the uploaded files.</span>
+        <strong>Upload an antenna design and click once to analyze it and generate graphs.</strong>
+        <span>Any antenna type is accepted. Image uploads get a visual-profile graph; CSV sweeps get an S11-vs-frequency graph. The local Anteena assistant can answer questions about your current review.</span>
       </div>
       <div class="review-grid">
         <div class="review-inputs">
-          <label class="review-label" for="review-goal">Describe any antenna design and desired result</label>
-          <textarea id="review-goal" class="review-textarea" placeholder="Any antenna type is accepted. Describe geometry/materials and target specs, e.g. custom spiral antenna, 2.4 GHz, S11 below -10 dB, gain above 5 dBi, bandwidth 200 MHz. You can also upload simulation CSV data."></textarea>
-          <div class="review-any-type">NO FIXED ANTENNA LIST · describe any geometry or upload its files</div>
+          <label class="review-label" for="review-goal">Optional notes or target specifications</label>
+          <textarea id="review-goal" class="review-textarea" placeholder="Optional: frequency, material, dimensions, target S11/gain. You can leave this blank and upload the design."></textarea>
+          <div class="review-any-type">ANY ANTENNA · NO TYPE SELECTION · UPLOAD AND ANALYZE</div>
           <label class="review-label">Upload design image, Word document, or code</label>
           <label class="review-drop" id="review-drop" for="review-files">
-            <span class="review-drop-icon">⇧</span><strong>Drop files here or browse</strong>
+            <span class="review-drop-icon">⇧</span><strong>Upload antenna design — click or drop here</strong>
             <small>Images: PNG/JPG/WebP · Word: DOCX · Code/text/data: .m .py .js .c .cpp .bas .vba .txt .md .csv</small>
           </label>
           <input id="review-files" type="file" multiple accept="image/*,.docx,.doc,.txt,.md,.py,.m,.js,.ts,.c,.cpp,.h,.bas,.vba,.json,.html,.css,.csv" hidden />
           <div id="review-file-list" class="review-file-list"><span class="review-empty">No files added yet.</span></div>
-          <button class="tactile-btn review-run" id="review-run">⚡ RUN DETAILED REVIEW</button>
+          <button class="tactile-btn review-run" id="review-run">⚡ ANALYZE DESIGN & GENERATE GRAPH</button>
         </div>
         <div class="review-output">
-          <div class="review-summary" id="review-summary"><span class="review-badge">READY</span><span>Add a requirement and at least one file to start.</span></div>
+          <div class="review-summary" id="review-summary"><span class="review-badge">READY</span><span>Upload an antenna image/file, or describe a design, then click Analyze.</span></div>
           <div id="review-image-preview" class="review-image-preview hidden"></div>
           <div id="review-charts" class="review-charts hidden"></div>
           <div id="review-report" class="review-report"><div class="review-empty">Your findings, checks, warnings, charts, and recommended next steps will appear here.</div></div>
@@ -1156,6 +1156,13 @@
           </div>
           <button class="tactile-btn" id="review-download" disabled>⬇ DOWNLOAD ANALYSIS (.MD)</button>
           <button class="tactile-btn" id="review-download-classifier" disabled>⌘ DOWNLOAD TYPE-DETECTION CODE (.JS)</button>
+          <section class="review-agent" aria-label="Anteena AI assistant">
+            <div class="review-agent-title">🤖 ANTEENA AI · DESIGN ASSISTANT</div>
+            <div class="review-chat-log" id="review-chat-log" aria-live="polite"><div class="review-chat-message agent">Upload a design and run analysis. Then ask me about its likely antenna type, graph, measurements, or next steps.</div></div>
+            <label class="review-label" for="review-chat-input">Ask about your design</label>
+            <div class="review-chat-compose"><input id="review-chat-input" type="text" placeholder="What does this graph show?" autocomplete="off"><button class="tactile-btn" id="review-chat-send" type="button">ASK</button></div>
+            <small>Runs in this browser using your review and antenna reference data; no uploaded file is sent to a cloud AI.</small>
+          </section>
         </div>
       </div>
     </section>
