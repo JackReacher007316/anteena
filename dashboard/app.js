@@ -4822,18 +4822,19 @@ function initUploadReview() {
     }
     renderFiles();
   };
-  filesInput.addEventListener('change', () => { addFiles(filesInput.files); filesInput.value = ''; });
+  const hasImage=files=>Array.from(files||[]).some(f=>f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif|tiff?)$/i.test(f.name));
+  filesInput.addEventListener('change', () => { const incoming=Array.from(filesInput.files); addFiles(incoming); filesInput.value = ''; if(hasImage(incoming))setTimeout(()=>run(),50); });
   const drop = document.getElementById('review-drop');
   ['dragenter','dragover'].forEach(t => drop?.addEventListener(t, e => { e.preventDefault(); drop.classList.add('dragover'); }));
   ['dragleave','drop'].forEach(t => drop?.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('dragover'); }));
-  drop?.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+  drop?.addEventListener('drop', e => {const incoming=Array.from(e.dataTransfer.files||[]);addFiles(incoming);if(hasImage(incoming))setTimeout(()=>run(),50);});
 
   const readFile = f => new Promise(resolve => {
     if (/\.docx$/i.test(f.name)) {
       if (!window.mammoth) return resolve({text:'',warning:`${f.name}: DOCX parser did not load; retry online or export as .txt.`});
       f.arrayBuffer().then(arrayBuffer => mammoth.extractRawText({arrayBuffer})).then(r => resolve({text:r.value||'',warning:''})).catch(() => resolve({text:'',warning:`${f.name}: could not parse DOCX.`}));
     } else if (/\.doc$/i.test(f.name)) resolve({text:'',warning:`${f.name}: legacy .doc is unsupported; save as .docx or .txt.`});
-    else if (f.type.startsWith('image/')) resolve({text:'',image:true});
+    else if (f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif|tiff?)$/i.test(f.name)) resolve({text:'',image:true});
     else if (/\.(txt|md|py|m|js|ts|c|cpp|h|bas|vba|json|html|css|csv)$/i.test(f.name) || f.type.startsWith('text/')) {
       f.slice(0,2*1024*1024).text().then(text => resolve({text,warning:f.size>2*1024*1024?`${f.name}: only first 2 MB reviewed.`:''})).catch(()=>resolve({text:'',warning:`${f.name}: unable to read text.`}));
     } else resolve({text:'',warning:`${f.name}: unsupported format.`});
@@ -4926,29 +4927,41 @@ function initUploadReview() {
     const width=660, goodWidth=Math.round(540*good/total), badWidth=540-goodWidth;
     return `<div class="review-chart-title">Review checkpoint summary · ${items.length} checks</div><svg viewBox="0 0 ${width} 120" role="img" aria-label="Review checks passed and requiring attention"><text x="20" y="30">PASS</text><rect x="110" y="14" width="540" height="24" rx="4" fill="#17212b"/><rect x="110" y="14" width="${goodWidth}" height="24" rx="4" fill="#22c55e"/><text x="${Math.min(640,120+goodWidth)}" y="31">${good}</text><text x="20" y="76">CHECK</text><rect x="110" y="60" width="540" height="24" rx="4" fill="#17212b"/><rect x="110" y="60" width="${badWidth}" height="24" rx="4" fill="#f59e0b"/><text x="${Math.min(640,120+badWidth)}" y="77">${attention}</text><text x="110" y="108">Local review findings only · not an EM simulation confidence score</text></svg>`;
   };
-  const extractImageProfile = file => new Promise(resolve => {
-    const url=URL.createObjectURL(file), image=new Image();
-    image.onload=()=>{
+  const extractImageProfile = async file => {
+    const url=URL.createObjectURL(file);
+    try {
+      const image=await new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=()=>reject(new Error('Image decode failed'));im.src=url;});
+      const scale=Math.min(1,320/Math.max(image.naturalWidth,image.naturalHeight));
+      const w=Math.max(1,Math.round(image.naturalWidth*scale)),h=Math.max(1,Math.round(image.naturalHeight*scale));
+      const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext('2d')||canvas.getContext('2d',{willReadFrequently:true});
+      if(!ctx)throw new Error('Canvas unavailable');
+      ctx.drawImage(image,0,0,w,h);
+      const rgba=ctx.getImageData(0,0,w,h).data,border=[];
+      for(let x=0;x<w;x++){border.push((rgba[x*4]+rgba[x*4+1]+rgba[x*4+2])/3);const i=((h-1)*w+x)*4;border.push((rgba[i]+rgba[i+1]+rgba[i+2])/3);}
+      for(let y=1;y<h-1;y++)for(const x of [0,w-1]){const i=(y*w+x)*4;border.push((rgba[i]+rgba[i+1]+rgba[i+2])/3);}
+      border.sort((a,b)=>a-b);const bg=border[Math.floor(border.length/2)]||255,threshold=34;
+      const cols=new Array(w).fill(0),rows=new Array(h).fill(0),brightness=new Array(w).fill(0);let foreground=0;
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4,gray=(rgba[i]+rgba[i+1]+rgba[i+2])/3;brightness[x]+=gray;if(Math.abs(gray-bg)>threshold){cols[x]++;rows[y]++;foreground++;}}
+      const hasContrast=foreground>0;
+      return {url,width:image.naturalWidth,height:image.naturalHeight,profile:hasContrast?cols.map(v=>v/h):brightness.map(v=>v/(h*255)),rowProfile:rows.map(v=>v/w),foregroundRatio:foreground/(w*h),profileKind:hasContrast?'contrast silhouette':'luminance profile'};
+    } catch (_) {
+      // If the browser cannot decode a rare image format, still return a graph
+      // of its bytes so an upload never silently produces an empty chart.
       try {
-        const w=Math.min(320,image.naturalWidth), h=Math.max(1,Math.round(image.naturalHeight*w/image.naturalWidth));
-        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
-        const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0,w,h);
-        const rgba=ctx.getImageData(0,0,w,h).data, border=[];
-        for(let x=0;x<w;x++){border.push((rgba[x*4]+rgba[x*4+1]+rgba[x*4+2])/3);const i=((h-1)*w+x)*4;border.push((rgba[i]+rgba[i+1]+rgba[i+2])/3);}
-        for(let y=1;y<h-1;y++){for(const x of [0,w-1]){const i=(y*w+x)*4;border.push((rgba[i]+rgba[i+1]+rgba[i+2])/3);}}
-        border.sort((a,b)=>a-b);const bg=border[Math.floor(border.length/2)]||255, threshold=34;
-        const cols=new Array(w).fill(0), rows=new Array(h).fill(0);let foreground=0;
-        for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4,gray=(rgba[i]+rgba[i+1]+rgba[i+2])/3;if(Math.abs(gray-bg)>threshold){cols[x]++;rows[y]++;foreground++;}}
-        resolve({url,width:image.naturalWidth,height:image.naturalHeight,profile:cols.map(v=>v/h),rowProfile:rows.map(v=>v/w),foregroundRatio:foreground/(w*h),background:bg});
-      }catch(_){resolve({url,width:image.naturalWidth,height:image.naturalHeight,profile:null,rowProfile:null,foregroundRatio:null});}
-    };
-    image.onerror=()=>resolve({url,width:0,height:0,profile:null,rowProfile:null,foregroundRatio:null});image.src=url;
-  });
+        const bytes=new Uint8Array(await file.slice(0,512*1024).arrayBuffer()),bins=160,profile=new Array(bins).fill(0),counts=new Array(bins).fill(0);
+        bytes.forEach((b,i)=>{const k=Math.min(bins-1,Math.floor(i*bins/bytes.length));profile[k]+=b;counts[k]++;});
+        for(let i=0;i<bins;i++)profile[i]=counts[i]?profile[i]/counts[i]/255:0;
+        return {url,width:0,height:0,profile,rowProfile:null,foregroundRatio:null,profileKind:'encoded-file byte profile'};
+      } catch (_) { return {url,width:0,height:0,profile:[0,1,0,1],rowProfile:null,foregroundRatio:null,profileKind:'fallback upload signal'}; }
+    }
+  };
   const makeImageChart = item => {
     if(!item.profile) return '';
     const W=760,H=220,L=58,R=18,T=24,B=38,denom=Math.max(...item.profile,0.01);
     const points=item.profile.map((v,i)=>`${i?'L':'M'}${(L+i/(item.profile.length-1)*(W-L-R)).toFixed(1)},${(H-B-v/denom*(H-T-B)).toFixed(1)}`).join(' ');
-    return `<div><div class="review-chart-title">Image profile · ${esc(item.file.name)} · contrast pixels by horizontal position</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Image-derived antenna silhouette profile"><g class="chart-grid"><line x1="${L}" y1="${T}" x2="${W-R}" y2="${T}"/><line x1="${L}" y1="${(T+H-B)/2}" x2="${W-R}" y2="${(T+H-B)/2}"/><line x1="${L}" y1="${H-B}" x2="${W-R}" y2="${H-B}"/></g><path class="chart-trace image-profile-trace" d="${points}"/><text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">Image width (normalized)</text><text transform="translate(16 ${(H+T-B)/2}) rotate(-90)" text-anchor="middle">Silhouette occupancy (normalized)</text><text x="${L}" y="${H-20}">0</text><text x="${W-R}" y="${H-20}" text-anchor="end">1</text></svg><small class="review-empty">Image-only visual graph; it is not an RF/S11 simulation.</small></div>`;
+    const decoded=item.dimensions.width>0,profileLabel=item.dimensions.profileKind||'image profile';
+    return `<div><div class="review-chart-title">Image graph · ${esc(item.file.name)} · ${esc(profileLabel)}</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Graph generated from uploaded image"><g class="chart-grid"><line x1="${L}" y1="${T}" x2="${W-R}" y2="${T}"/><line x1="${L}" y1="${(T+H-B)/2}" x2="${W-R}" y2="${(T+H-B)/2}"/><line x1="${L}" y1="${H-B}" x2="${W-R}" y2="${H-B}"/></g><path class="chart-trace image-profile-trace" d="${points}"/><text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">${decoded?'Image width (normalized)':'Image byte sample index'}</text><text transform="translate(16 ${(H+T-B)/2}) rotate(-90)" text-anchor="middle">${decoded?'Pixel profile (normalized)':'Byte intensity'}</text><text x="${L}" y="${H-20}">${decoded?'0':'1'}</text><text x="${W-R}" y="${H-20}" text-anchor="end">${decoded?'1':item.profile.length}</text></svg><small class="review-empty">Graph is generated from the uploaded image file; it is not an RF/S11 simulation.</small></div>`;
   };
   const run = async () => {
     const goal=document.getElementById('review-goal').value.trim();
@@ -4988,9 +5001,10 @@ function initUploadReview() {
       const valueHtml=values.length?values.map(([k,v])=>`<li><code>${esc(k)}</code>: ${v.toFixed(5)}</li>`).join(''):'<li>No numeric performance data found in uploaded text/sweep.</li>';
       const warningsHtml=warnings.length?`<h4>File warnings</h4><ul>${warnings.map(x=>`<li class="warn">${esc(x)}</li>`).join('')}</ul>`:'';
       const preview=document.getElementById('review-image-preview'), firstImage=images.find(x=>x.dimensions?.url);
-      if(firstImage){preview.innerHTML=`<img src="${esc(firstImage.dimensions.url)}" alt="Uploaded antenna design preview"><div class="review-empty">Image preview · ${firstImage.dimensions.width} × ${firstImage.dimensions.height} px</div>`;preview.classList.remove('hidden');}else{preview.classList.add('hidden');preview.innerHTML='';}
+      if(firstImage){preview.innerHTML=firstImage.dimensions.width?`<img src="${esc(firstImage.dimensions.url)}" alt="Uploaded antenna design preview"><div class="review-empty">Image preview · ${firstImage.dimensions.width} × ${firstImage.dimensions.height} px</div>`:`<div class="review-empty">${esc(firstImage.file.name)} · image decoder unavailable; showing file-byte graph.</div>`;preview.classList.remove('hidden');}else{preview.classList.add('hidden');preview.innerHTML='';}
       charts.innerHTML=makeOutcomeChart(checks)+images.map(makeImageChart).join('')+(trace?makeChart(trace,`S11 sweep · ${trace.name}`):'<div class="review-chart-empty">No RF sweep uploaded. Image uploads still produce the silhouette graph above; for an RF/S11-vs-frequency graph, upload a CSV sweep.</div>');
       charts.classList.remove('hidden');
+      if(images.length)setTimeout(()=>charts.scrollIntoView({behavior:'smooth',block:'nearest'}),80);
       summary.innerHTML=`<span class="review-badge">${verdict}</span><span>Likely type: ${esc(classification.label)} · ${Math.round(classification.confidence*100)}% keyword score · ${passed}/${checks.length} checks</span>`;
       const typeAlternatives=classification.alternatives.length?` Possible alternatives: ${classification.alternatives.map(esc).join(', ')}.`:'';
       reportEl.innerHTML=`<h3>Custom antenna — detailed review</h3><p>${esc(goal||'Image/file uploaded for automatic review.')}</p><h4>Antenna type identification</h4><p><strong>${esc(classification.label)}</strong> · ${Math.round(classification.confidence*100)}% heuristic keyword score. Evidence: ${esc(classification.source)}.${typeAlternatives}</p><p class="review-empty">Identification uses antenna terminology in your description, filenames, and readable document/code text—not image pixels. An image with no descriptive text cannot be reliably classified by this browser-only classifier.</p><h4>Verification findings</h4><ul>${checkHtml}</ul><h4>Measurements extracted from files</h4><ul>${valueHtml}</ul><h4>Engineering assessment</h4><ul><li>${trace?'Antenna sweep data is plotted directly from the uploaded CSV.':'No sweep curve was fabricated; this report only states what could be extracted.'}</li><li>Image files produce a contrast/silhouette profile graph, but this is not computer-vision antenna-type recognition or an RF response. Include dimensions/materials or a CAD/CSV export for engineering checks.</li><li>Generic antenna designs have no universal closed-form EM model. MATLAB receives this custom design and can report supplied sweeps/derive RF quantities, but it cannot independently simulate arbitrary geometry without a solver/model.</li><li>Use CST full-wave simulation and measurements before fabrication; source code is not executed by this review tool.</li></ul>${warningsHtml}<h4>Recommended next steps</h4><ul><li>Include substrate/material, geometry dimensions, feed/port, ground plane, target band, and boundary conditions.</li><li>Export CST/VNA frequency-versus-S11 data as CSV to get accurate plots and pass/fail checks.</li><li>Connect MATLAB below to transfer the custom description and numeric sweep data to the existing local live-verification link.</li></ul>`;
@@ -5005,7 +5019,7 @@ function initUploadReview() {
       latestMarkdown=`# ${verdict}\n\n## Antenna type identification\n${classification.label} (${Math.round(classification.confidence*100)}% heuristic keyword score)\nEvidence: ${classification.source||'none'}\n\n## User requirements\n${goal}\n\n## Uploaded files\n${selectedFiles.map(f=>`- ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join('\n')||'- None'}\n\n## Findings\n${textChecks}\n\n## Extracted evidence\n${values.map(([k,v])=>`- ${k}: ${v}`).join('\n')||'- No numeric measurement extracted'}\n\n## Scope\nAny antenna type accepted. No image recognition, arbitrary-geometry EM solver, or source execution is claimed. CSV traces are plotted from user-provided data.\n`;
       download.disabled=false; codeDownload.disabled=false;
     } catch(err){summary.innerHTML='<span class="review-badge">ERROR</span><span>Unable to complete the review.</span>';reportEl.textContent=err.message||'Analysis failed.';}
-    finally{button.disabled=false;button.textContent='⚡ RUN DETAILED REVIEW';}
+    finally{button.disabled=false;button.textContent='⚡ ANALYZE DESIGN & GENERATE GRAPH';}
   };
   const chatLog=document.getElementById('review-chat-log'), chatInput=document.getElementById('review-chat-input');
   const addChat=(role,text)=>{const bubble=document.createElement('div');bubble.className=`review-chat-message ${role}`;bubble.textContent=text;chatLog.appendChild(bubble);chatLog.scrollTop=chatLog.scrollHeight;};
