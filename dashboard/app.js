@@ -4782,6 +4782,160 @@ function initThemeSwitcher() {
 // 19. INITIALIZATION & EVENT LISTENERS
 // ═══════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════
+// 20. LOCAL UPLOAD REVIEW + OPTIONAL GOOGLE IDENTITY UI
+// This is transparent, browser-local engineering assistance, not a hosted LLM.
+// ═══════════════════════════════════════════════════════════
+function initUploadReview() {
+  const modal = document.getElementById('review-modal');
+  const filesInput = document.getElementById('review-files');
+  const fileList = document.getElementById('review-file-list');
+  const report = document.getElementById('review-report');
+  const summary = document.getElementById('review-summary');
+  const download = document.getElementById('review-download');
+  const antennaSelect = document.getElementById('review-antenna');
+  if (!modal || !filesInput) return;
+  const selectedFiles = [];
+  let latestMarkdown = '';
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const open = () => { modal.classList.remove('hidden'); if (antennaSelect && !antennaSelect.options.length) {
+    Object.entries(ANTENNA_CONFIGS).forEach(([key, config]) => antennaSelect.add(new Option(config.fullName || config.label, key)));
+    antennaSelect.value = typeof currentAntenna !== 'undefined' && ANTENNA_CONFIGS[currentAntenna] ? currentAntenna : 'patch';
+  }};
+  const close = () => modal.classList.add('hidden');
+  ['btn-open-review'].forEach(id => document.getElementById(id)?.addEventListener('click', open));
+  document.getElementById('review-close')?.addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  const renderFiles = () => {
+    fileList.innerHTML = selectedFiles.length ? selectedFiles.map((f,i) => `<div class="review-file"><span>${esc(f.name)} <small>(${(f.size/1024).toFixed(1)} KB)</small></span><button type="button" data-remove="${i}" aria-label="Remove ${esc(f.name)}">REMOVE</button></div>`).join('') : '<span class="review-empty">No files added yet.</span>';
+    fileList.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', () => { selectedFiles.splice(Number(btn.dataset.remove),1); renderFiles(); }));
+  };
+  const addFiles = list => {
+    for (const f of list) {
+      if (f.size > 12 * 1024 * 1024) { alert(`${f.name} exceeds the 12 MB per-file limit.`); continue; }
+      if (!selectedFiles.some(item => item.name === f.name && item.size === f.size && item.lastModified === f.lastModified)) selectedFiles.push(f);
+    }
+    renderFiles();
+  };
+  filesInput.addEventListener('change', () => { addFiles(filesInput.files); filesInput.value = ''; });
+  const drop = document.getElementById('review-drop');
+  ['dragenter','dragover'].forEach(type => drop?.addEventListener(type, e => { e.preventDefault(); drop.classList.add('dragover'); }));
+  ['dragleave','drop'].forEach(type => drop?.addEventListener(type, e => { e.preventDefault(); drop.classList.remove('dragover'); }));
+  drop?.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+
+  const readText = f => new Promise(resolve => {
+    if (/\.docx$/i.test(f.name)) {
+      if (!window.mammoth) return resolve({text:'', warning:`${f.name}: DOCX text parser did not load; retry with internet enabled or provide a .txt/.md export.`});
+      f.arrayBuffer().then(arrayBuffer => mammoth.extractRawText({arrayBuffer})).then(r => resolve({text:r.value || '', warning:''})).catch(() => resolve({text:'',warning:`${f.name}: could not parse this DOCX document.`}));
+    } else if (/\.(doc)$/i.test(f.name)) resolve({text:'',warning:`${f.name}: legacy .doc is not readable in-browser; save as .docx or .txt.`});
+    else if (f.type.startsWith('image/')) resolve({text:'',image:true});
+    else if (/\.(txt|md|py|m|js|ts|c|cpp|h|bas|vba|json|html|css)$/i.test(f.name) || f.type.startsWith('text/')) {
+      f.slice(0, 2 * 1024 * 1024).text().then(text => resolve({text, warning:f.size > 2*1024*1024 ? `${f.name}: only the first 2 MB was reviewed.` : ''})).catch(() => resolve({text:'',warning:`${f.name}: text could not be read.`}));
+    } else resolve({text:'',warning:`${f.name}: unsupported file type.`});
+  });
+  const run = async () => {
+    const goal = document.getElementById('review-goal').value.trim();
+    if (!goal) { summary.innerHTML = '<span class="review-badge">NEED INPUT</span><span>Describe the expected result first.</span>'; return; }
+    if (!selectedFiles.length) { summary.innerHTML = '<span class="review-badge">NEED FILES</span><span>Add at least one image, Word, or code file.</span>'; return; }
+    const button = document.getElementById('review-run'); button.disabled = true; button.textContent = 'ANALYZING FILES…';
+    summary.innerHTML = '<span class="review-badge">RUNNING</span><span>Reading files and checking requirements locally…</span>';
+    try {
+      const contents = await Promise.all(selectedFiles.map(async file => ({file,...await readText(file)})));
+      const allText = contents.map(x => x.text).join('\n');
+      const lower = `${goal}\n${allText}`.toLowerCase();
+      const antennaKey = antennaSelect.value || 'patch';
+      const config = ANTENNA_CONFIGS[antennaKey] || ANTENNA_CONFIGS.patch;
+      const params = Object.fromEntries((config.params || []).map(p => [p.id, Number(p.default)]));
+      let metrics = {};
+      try { metrics = config.simulate ? config.simulate(params) : {}; } catch (_) { metrics = {}; }
+      const checks = [];
+      const warnings = contents.filter(x => x.warning).map(x => x.warning);
+      const images = contents.filter(x => x.image);
+      const docs = contents.filter(x => /\.docx?$/i.test(x.file.name));
+      const codeFiles = contents.filter(x => /\.(py|m|js|ts|c|cpp|h|bas|vba|json|html|css)$/i.test(x.file.name));
+      if (images.length) {
+        for (const item of images) {
+          const dims = await new Promise(resolve => { const url=URL.createObjectURL(item.file); const image=new Image(); image.onload=()=>{const val={width:image.naturalWidth,height:image.naturalHeight,url};resolve(val);}; image.onerror=()=>resolve({width:0,height:0,url}); image.src=url; });
+          item.dimensions=dims;
+          checks.push({ok:dims.width>0, title:`Image ${item.file.name}`, detail:dims.width ? `${dims.width} × ${dims.height} px; image metadata checked. Shape/material/antenna type are not automatically recognized.` : 'Image could not be decoded.'});
+        }
+      }
+      if (docs.length) checks.push({ok:allText.trim().length>40,title:'Word document content',detail:allText.trim().length ? `${allText.trim().length.toLocaleString()} characters extracted${allText.trim().length<=40?' (very short)':''}.` : 'No text extracted. The document may be scanned, legacy .doc, or unsupported.'});
+      if (codeFiles.length) {
+        const hasCode=allText.trim().length>0;
+        checks.push({ok:hasCode,title:'Source content',detail:`${codeFiles.length} code/source file(s); ${allText.length.toLocaleString()} readable characters.`});
+        const extFiles=contents.filter(x=>/\.(py|m|js|ts|c|cpp|h|bas|vba)$/i.test(x.file.name));
+        const delimiters = (allText.match(/[{}]/g)||[]).length;
+        if (extFiles.length && delimiters % 2) checks.push({ok:false,title:'Basic source-structure scan',detail:'Unbalanced curly-brace count detected. Review source manually; this is a heuristic, not a compiler.'});
+        else if(extFiles.length) checks.push({ok:true,title:'Basic source-structure scan',detail:'No obvious unmatched curly braces. No compiler/runtime execution was performed.'});
+        if (/\b(TODO|FIXME|placeholder|not implemented)\b/i.test(allText)) checks.push({ok:false,title:'Incomplete markers',detail:'TODO/FIXME/placeholder markers appear in the uploaded source.'});
+        const mentionsRF=/antenna|frequency|gain|s11|return loss|cst|microwave|radio/i.test(allText);
+        checks.push({ok:mentionsRF,title:'Antenna relevance',detail:mentionsRF?'RF/antenna terms appear in source/document text.':'No common antenna or RF terms found in readable text.'});
+      }
+      const metricsText = Object.entries(metrics).filter(([,v])=>Number.isFinite(Number(v))).map(([k,v])=>[k,Number(v)]);
+      const freqMatch=goal.match(/(\d+(?:\.\d+)?)\s*(ghz|mhz)\b/i);
+      const targetFreq=freqMatch ? Number(freqMatch[1])*(freqMatch[2].toLowerCase()==='mhz'?.001:1) : null;
+      const fr=Number(metrics.Fr);
+      if (targetFreq && Number.isFinite(fr)) checks.push({ok:Math.abs(fr-targetFreq)<=Math.max(.25,targetFreq*.15),title:'Frequency target vs. selected model',detail:`Requested ${targetFreq} GHz; default ${config.label} model estimates ${fr.toFixed(3)} GHz. Change dimensions in the workstation to refine.`});
+      const s11Match=goal.match(/(?:s11|return loss)[^\n<]{0,20}?(?:below|under|less than|<)\s*(-?\d+(?:\.\d+)?)\s*db/i);
+      const gainMatch=goal.match(/gain[^\n<]{0,20}?(?:above|over|greater than|>)\s*(\d+(?:\.\d+)?)\s*dbi/i);
+      for (const [match,key,label,unit,kind] of [[s11Match,'S11','S11','dB','lower'],[gainMatch,'Gain','Gain','dBi','higher']]) if(match) {
+        const value=Number(metrics[key]), target=Number(match[1]);
+        checks.push({ok:Number.isFinite(value)&&(kind==='lower'?value<=target:value>=target),title:`${label} target vs. selected model`,detail:`Target ${kind==='lower'?'≤':'≥'} ${target} ${unit}; default model estimate ${Number.isFinite(value)?value.toFixed(2):'not available'} ${unit}.`});
+      }
+      const found = ['dimension','length','width','height','permittivity','substrate','frequency','gain','s11'].filter(term=>lower.includes(term));
+      checks.push({ok:found.length>=3,title:'Requirement coverage',detail:`Found ${found.length} relevant engineering terms in your input/files${found.length?`: ${found.join(', ')}`:''}. Add explicit dimensions, units, and pass/fail limits for a stronger review.`});
+      const passed=checks.filter(c=>c.ok).length, failed=checks.length-passed;
+      const verdict=failed===0&&!warnings.length?'REVIEW PASSED':'REVIEW NEEDS ATTENTION';
+      const metricRows=metricsText.map(([k,v])=>`<li><code>${esc(k)}</code>: ${v.toFixed(3)}</li>`).join('');
+      const checkHtml=checks.map(c=>`<li class="${c.ok?'good':'warn'}"><strong>${c.ok?'PASS':'CHECK'} — ${esc(c.title)}</strong><br>${esc(c.detail)}</li>`).join('');
+      const warningHtml=warnings.length?`<h4>Limitations / warnings</h4><ul>${warnings.map(w=>`<li class="warn">${esc(w)}</li>`).join('')}</ul>`:'';
+      const preview=document.getElementById('review-image-preview');
+      const firstImage=images.find(x=>x.dimensions?.url);
+      if(firstImage){ preview.innerHTML=`<img src="${esc(firstImage.dimensions.url)}" alt="Uploaded antenna design preview"><div class="review-empty">Image preview · ${firstImage.dimensions.width} × ${firstImage.dimensions.height} px</div>`; preview.classList.remove('hidden'); }
+      else {preview.classList.add('hidden');preview.innerHTML='';}
+      summary.innerHTML=`<span class="review-badge">${verdict}</span><span>${passed}/${checks.length} checks passed · ${selectedFiles.length} file(s) · browser-local analysis</span>`;
+      report.innerHTML=`<h3>${esc(config.fullName || config.label)} — Review report</h3><p>${esc(config.description || 'Antenna model selected for this analysis.')}</p><h4>Review checks</h4><ul>${checkHtml}</ul><h4>Default model estimates (analytical surrogate)</h4><ul>${metricRows || '<li>Metrics unavailable for this topology.</li>'}</ul><p class="review-empty">These are approximate model outputs, not measurements or full-wave CST results. The uploaded image is previewed and checked for readable dimensions only; no image recognition is claimed.</p>${warningHtml}<h4>Suggested next steps</h4><ul><li>Confirm units and constraints in the requirements; image geometry cannot be measured reliably from a raster preview.</li><li>Use the workstation sliders / CST macro export, then verify with MATLAB/CST before fabrication.</li><li>For source code, run the correct language compiler, test suite, and CST validation; this desk does not execute uploaded code.</li></ul>`;
+      const fileSummary=selectedFiles.map(f=>`- ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join('\n');
+      latestMarkdown=`# ${verdict}\n\nAntenna: ${config.fullName || config.label}\n\nRequirement: ${goal}\n\nFiles:\n${fileSummary}\n\n## Checks\n${checks.map(c=>`- [${c.ok?'x':' '}] ${c.title}: ${c.detail}`).join('\n')}\n\n## Approximate model estimates\n${metricsText.map(([k,v])=>`- ${k}: ${v.toFixed(3)}`).join('\n')}\n\n## Limitations\nBrowser-local heuristics only. No cloud AI, image recognition, uploaded-code execution, compiler, or full-wave CST simulation was run.\n\n## Recommended next steps\n- Confirm dimensions and units; verify in CST/MATLAB before fabrication.\n- Compile/test source code separately.\n`;
+      download.disabled=false;
+    } catch (error) {
+      summary.innerHTML='<span class="review-badge">ERROR</span><span>Could not complete local analysis. Check file types and try again.</span>';
+      report.textContent=error.message || 'Analysis failed.';
+    } finally { button.disabled=false; button.textContent='⚡ RUN DETAILED REVIEW'; }
+  };
+  document.getElementById('review-run')?.addEventListener('click', run);
+  download.addEventListener('click', () => { if(!latestMarkdown)return; const url=URL.createObjectURL(new Blob([latestMarkdown],{type:'text/markdown'})); const a=document.createElement('a'); a.href=url; a.download='anteena-review.md'; a.click(); URL.revokeObjectURL(url); });
+}
+
+function initGoogleAccount() {
+  const modal=document.getElementById('account-modal'); if(!modal)return;
+  const open=()=>modal.classList.remove('hidden');
+  const close=()=>modal.classList.add('hidden');
+  document.getElementById('btn-open-account')?.addEventListener('click',open);
+  document.getElementById('account-close')?.addEventListener('click',close);
+  modal.addEventListener('click',e=>{if(e.target===modal)close();});
+  const configured=(document.querySelector('meta[name="google-client-id"]')?.content||'').trim();
+  if(!configured || configured==='GOOGLE_CLIENT_ID') return;
+  const script=document.createElement('script'); script.src='https://accounts.google.com/gsi/client'; script.async=true; script.defer=true;
+  script.onload=()=>{
+    if(!window.google?.accounts?.id)return;
+    google.accounts.id.initialize({client_id:configured,callback:credential=>{
+      try {
+        const payload=JSON.parse(decodeURIComponent(escape(atob(credential.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))));
+        document.getElementById('account-message').textContent='Signed in for this browser session. For a secure production session, verify this credential on your trusted backend.';
+        const profile=document.getElementById('account-profile'); profile.innerHTML=`<img src="${String(payload.picture||'').replace(/["<>]/g,'')}" alt=""><span>${String(payload.name||payload.email||'Google user').replace(/[<>]/g,'')}</span>`; profile.classList.remove('hidden');
+        document.getElementById('account-signout').classList.remove('hidden');
+      } catch (_) { document.getElementById('account-message').textContent='Google returned a credential, but its profile could not be displayed.'; }
+    }});
+    google.accounts.id.renderButton(document.getElementById('google-signin-button'),{theme:'outline',size:'large',text:'signin_with',shape:'rectangular'});
+    document.getElementById('account-message').textContent='Continue with Google. This browser-only demo does not create a secure server session.';
+  };
+  document.head.appendChild(script);
+  document.getElementById('account-signout')?.addEventListener('click',()=>{document.getElementById('account-profile').classList.add('hidden');document.getElementById('account-signout').classList.add('hidden');document.getElementById('account-message').textContent='Signed out of the local demo.';});
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 
   // Antenna buttons
@@ -4893,6 +5047,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Init themes & live clock
+  initUploadReview();
+  initGoogleAccount();
   initThemeSwitcher();
   initLiveClock();
   initSearch();
