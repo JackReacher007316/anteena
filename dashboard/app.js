@@ -4790,23 +4790,24 @@ function initUploadReview() {
   const modal = document.getElementById('review-modal');
   const filesInput = document.getElementById('review-files');
   const fileList = document.getElementById('review-file-list');
-  const report = document.getElementById('review-report');
+  const reportEl = document.getElementById('review-report');
   const summary = document.getElementById('review-summary');
   const download = document.getElementById('review-download');
-  const antennaSelect = document.getElementById('review-antenna');
+  const charts = document.getElementById('review-charts');
+  const matlabSend = document.getElementById('review-send-matlab');
+  const matlabStatus = document.getElementById('review-matlab-status');
   if (!modal || !filesInput) return;
   const selectedFiles = [];
   let latestMarkdown = '';
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const open = () => { modal.classList.remove('hidden'); if (antennaSelect && !antennaSelect.options.length) {
-    Object.entries(ANTENNA_CONFIGS).forEach(([key, config]) => antennaSelect.add(new Option(config.fullName || config.label, key)));
-    antennaSelect.value = typeof currentAntenna !== 'undefined' && ANTENNA_CONFIGS[currentAntenna] ? currentAntenna : 'patch';
-  }};
+  let latestMatlabPayload = null;
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const open = () => modal.classList.remove('hidden');
   const close = () => modal.classList.add('hidden');
-  ['btn-open-review'].forEach(id => document.getElementById(id)?.addEventListener('click', open));
+  document.getElementById('btn-open-review')?.addEventListener('click', open);
   document.getElementById('review-close')?.addEventListener('click', close);
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+
   const renderFiles = () => {
     fileList.innerHTML = selectedFiles.length ? selectedFiles.map((f,i) => `<div class="review-file"><span>${esc(f.name)} <small>(${(f.size/1024).toFixed(1)} KB)</small></span><button type="button" data-remove="${i}" aria-label="Remove ${esc(f.name)}">REMOVE</button></div>`).join('') : '<span class="review-empty">No files added yet.</span>';
     fileList.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', () => { selectedFiles.splice(Number(btn.dataset.remove),1); renderFiles(); }));
@@ -4814,99 +4815,153 @@ function initUploadReview() {
   const addFiles = list => {
     for (const f of list) {
       if (f.size > 12 * 1024 * 1024) { alert(`${f.name} exceeds the 12 MB per-file limit.`); continue; }
-      if (!selectedFiles.some(item => item.name === f.name && item.size === f.size && item.lastModified === f.lastModified)) selectedFiles.push(f);
+      if (!selectedFiles.some(x => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified)) selectedFiles.push(f);
     }
     renderFiles();
   };
   filesInput.addEventListener('change', () => { addFiles(filesInput.files); filesInput.value = ''; });
   const drop = document.getElementById('review-drop');
-  ['dragenter','dragover'].forEach(type => drop?.addEventListener(type, e => { e.preventDefault(); drop.classList.add('dragover'); }));
-  ['dragleave','drop'].forEach(type => drop?.addEventListener(type, e => { e.preventDefault(); drop.classList.remove('dragover'); }));
+  ['dragenter','dragover'].forEach(t => drop?.addEventListener(t, e => { e.preventDefault(); drop.classList.add('dragover'); }));
+  ['dragleave','drop'].forEach(t => drop?.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('dragover'); }));
   drop?.addEventListener('drop', e => addFiles(e.dataTransfer.files));
 
-  const readText = f => new Promise(resolve => {
+  const readFile = f => new Promise(resolve => {
     if (/\.docx$/i.test(f.name)) {
-      if (!window.mammoth) return resolve({text:'', warning:`${f.name}: DOCX text parser did not load; retry with internet enabled or provide a .txt/.md export.`});
-      f.arrayBuffer().then(arrayBuffer => mammoth.extractRawText({arrayBuffer})).then(r => resolve({text:r.value || '', warning:''})).catch(() => resolve({text:'',warning:`${f.name}: could not parse this DOCX document.`}));
-    } else if (/\.(doc)$/i.test(f.name)) resolve({text:'',warning:`${f.name}: legacy .doc is not readable in-browser; save as .docx or .txt.`});
+      if (!window.mammoth) return resolve({text:'',warning:`${f.name}: DOCX parser did not load; retry online or export as .txt.`});
+      f.arrayBuffer().then(arrayBuffer => mammoth.extractRawText({arrayBuffer})).then(r => resolve({text:r.value||'',warning:''})).catch(() => resolve({text:'',warning:`${f.name}: could not parse DOCX.`}));
+    } else if (/\.doc$/i.test(f.name)) resolve({text:'',warning:`${f.name}: legacy .doc is unsupported; save as .docx or .txt.`});
     else if (f.type.startsWith('image/')) resolve({text:'',image:true});
-    else if (/\.(txt|md|py|m|js|ts|c|cpp|h|bas|vba|json|html|css)$/i.test(f.name) || f.type.startsWith('text/')) {
-      f.slice(0, 2 * 1024 * 1024).text().then(text => resolve({text, warning:f.size > 2*1024*1024 ? `${f.name}: only the first 2 MB was reviewed.` : ''})).catch(() => resolve({text:'',warning:`${f.name}: text could not be read.`}));
-    } else resolve({text:'',warning:`${f.name}: unsupported file type.`});
+    else if (/\.(txt|md|py|m|js|ts|c|cpp|h|bas|vba|json|html|css|csv)$/i.test(f.name) || f.type.startsWith('text/')) {
+      f.slice(0,2*1024*1024).text().then(text => resolve({text,warning:f.size>2*1024*1024?`${f.name}: only first 2 MB reviewed.`:''})).catch(()=>resolve({text:'',warning:`${f.name}: unable to read text.`}));
+    } else resolve({text:'',warning:`${f.name}: unsupported format.`});
   });
-  const run = async () => {
-    const goal = document.getElementById('review-goal').value.trim();
-    if (!goal) { summary.innerHTML = '<span class="review-badge">NEED INPUT</span><span>Describe the expected result first.</span>'; return; }
-    if (!selectedFiles.length) { summary.innerHTML = '<span class="review-badge">NEED FILES</span><span>Add at least one image, Word, or code file.</span>'; return; }
-    const button = document.getElementById('review-run'); button.disabled = true; button.textContent = 'ANALYZING FILES…';
-    summary.innerHTML = '<span class="review-badge">RUNNING</span><span>Reading files and checking requirements locally…</span>';
-    try {
-      const contents = await Promise.all(selectedFiles.map(async file => ({file,...await readText(file)})));
-      const allText = contents.map(x => x.text).join('\n');
-      const lower = `${goal}\n${allText}`.toLowerCase();
-      const antennaKey = antennaSelect.value || 'patch';
-      const config = ANTENNA_CONFIGS[antennaKey] || ANTENNA_CONFIGS.patch;
-      const params = Object.fromEntries((config.params || []).map(p => [p.id, Number(p.default)]));
-      let metrics = {};
-      try { metrics = config.simulate ? config.simulate(params) : {}; } catch (_) { metrics = {}; }
-      const checks = [];
-      const warnings = contents.filter(x => x.warning).map(x => x.warning);
-      const images = contents.filter(x => x.image);
-      const docs = contents.filter(x => /\.docx?$/i.test(x.file.name));
-      const codeFiles = contents.filter(x => /\.(py|m|js|ts|c|cpp|h|bas|vba|json|html|css)$/i.test(x.file.name));
-      if (images.length) {
-        for (const item of images) {
-          const dims = await new Promise(resolve => { const url=URL.createObjectURL(item.file); const image=new Image(); image.onload=()=>{const val={width:image.naturalWidth,height:image.naturalHeight,url};resolve(val);}; image.onerror=()=>resolve({width:0,height:0,url}); image.src=url; });
-          item.dimensions=dims;
-          checks.push({ok:dims.width>0, title:`Image ${item.file.name}`, detail:dims.width ? `${dims.width} × ${dims.height} px; image metadata checked. Shape/material/antenna type are not automatically recognized.` : 'Image could not be decoded.'});
-        }
-      }
-      if (docs.length) checks.push({ok:allText.trim().length>40,title:'Word document content',detail:allText.trim().length ? `${allText.trim().length.toLocaleString()} characters extracted${allText.trim().length<=40?' (very short)':''}.` : 'No text extracted. The document may be scanned, legacy .doc, or unsupported.'});
-      if (codeFiles.length) {
-        const hasCode=allText.trim().length>0;
-        checks.push({ok:hasCode,title:'Source content',detail:`${codeFiles.length} code/source file(s); ${allText.length.toLocaleString()} readable characters.`});
-        const extFiles=contents.filter(x=>/\.(py|m|js|ts|c|cpp|h|bas|vba)$/i.test(x.file.name));
-        const delimiters = (allText.match(/[{}]/g)||[]).length;
-        if (extFiles.length && delimiters % 2) checks.push({ok:false,title:'Basic source-structure scan',detail:'Unbalanced curly-brace count detected. Review source manually; this is a heuristic, not a compiler.'});
-        else if(extFiles.length) checks.push({ok:true,title:'Basic source-structure scan',detail:'No obvious unmatched curly braces. No compiler/runtime execution was performed.'});
-        if (/\b(TODO|FIXME|placeholder|not implemented)\b/i.test(allText)) checks.push({ok:false,title:'Incomplete markers',detail:'TODO/FIXME/placeholder markers appear in the uploaded source.'});
-        const mentionsRF=/antenna|frequency|gain|s11|return loss|cst|microwave|radio/i.test(allText);
-        checks.push({ok:mentionsRF,title:'Antenna relevance',detail:mentionsRF?'RF/antenna terms appear in source/document text.':'No common antenna or RF terms found in readable text.'});
-      }
-      const metricsText = Object.entries(metrics).filter(([,v])=>Number.isFinite(Number(v))).map(([k,v])=>[k,Number(v)]);
-      const freqMatch=goal.match(/(\d+(?:\.\d+)?)\s*(ghz|mhz)\b/i);
-      const targetFreq=freqMatch ? Number(freqMatch[1])*(freqMatch[2].toLowerCase()==='mhz'?.001:1) : null;
-      const fr=Number(metrics.Fr);
-      if (targetFreq && Number.isFinite(fr)) checks.push({ok:Math.abs(fr-targetFreq)<=Math.max(.25,targetFreq*.15),title:'Frequency target vs. selected model',detail:`Requested ${targetFreq} GHz; default ${config.label} model estimates ${fr.toFixed(3)} GHz. Change dimensions in the workstation to refine.`});
-      const s11Match=goal.match(/(?:s11|return loss)[^\n<]{0,20}?(?:below|under|less than|<)\s*(-?\d+(?:\.\d+)?)\s*db/i);
-      const gainMatch=goal.match(/gain[^\n<]{0,20}?(?:above|over|greater than|>)\s*(\d+(?:\.\d+)?)\s*dbi/i);
-      for (const [match,key,label,unit,kind] of [[s11Match,'S11','S11','dB','lower'],[gainMatch,'Gain','Gain','dBi','higher']]) if(match) {
-        const value=Number(metrics[key]), target=Number(match[1]);
-        checks.push({ok:Number.isFinite(value)&&(kind==='lower'?value<=target:value>=target),title:`${label} target vs. selected model`,detail:`Target ${kind==='lower'?'≤':'≥'} ${target} ${unit}; default model estimate ${Number.isFinite(value)?value.toFixed(2):'not available'} ${unit}.`});
-      }
-      const found = ['dimension','length','width','height','permittivity','substrate','frequency','gain','s11'].filter(term=>lower.includes(term));
-      checks.push({ok:found.length>=3,title:'Requirement coverage',detail:`Found ${found.length} relevant engineering terms in your input/files${found.length?`: ${found.join(', ')}`:''}. Add explicit dimensions, units, and pass/fail limits for a stronger review.`});
-      const passed=checks.filter(c=>c.ok).length, failed=checks.length-passed;
-      const verdict=failed===0&&!warnings.length?'REVIEW PASSED':'REVIEW NEEDS ATTENTION';
-      const metricRows=metricsText.map(([k,v])=>`<li><code>${esc(k)}</code>: ${v.toFixed(3)}</li>`).join('');
-      const checkHtml=checks.map(c=>`<li class="${c.ok?'good':'warn'}"><strong>${c.ok?'PASS':'CHECK'} — ${esc(c.title)}</strong><br>${esc(c.detail)}</li>`).join('');
-      const warningHtml=warnings.length?`<h4>Limitations / warnings</h4><ul>${warnings.map(w=>`<li class="warn">${esc(w)}</li>`).join('')}</ul>`:'';
-      const preview=document.getElementById('review-image-preview');
-      const firstImage=images.find(x=>x.dimensions?.url);
-      if(firstImage){ preview.innerHTML=`<img src="${esc(firstImage.dimensions.url)}" alt="Uploaded antenna design preview"><div class="review-empty">Image preview · ${firstImage.dimensions.width} × ${firstImage.dimensions.height} px</div>`; preview.classList.remove('hidden'); }
-      else {preview.classList.add('hidden');preview.innerHTML='';}
-      summary.innerHTML=`<span class="review-badge">${verdict}</span><span>${passed}/${checks.length} checks passed · ${selectedFiles.length} file(s) · browser-local analysis</span>`;
-      report.innerHTML=`<h3>${esc(config.fullName || config.label)} — Review report</h3><p>${esc(config.description || 'Antenna model selected for this analysis.')}</p><h4>Review checks</h4><ul>${checkHtml}</ul><h4>Default model estimates (analytical surrogate)</h4><ul>${metricRows || '<li>Metrics unavailable for this topology.</li>'}</ul><p class="review-empty">These are approximate model outputs, not measurements or full-wave CST results. The uploaded image is previewed and checked for readable dimensions only; no image recognition is claimed.</p>${warningHtml}<h4>Suggested next steps</h4><ul><li>Confirm units and constraints in the requirements; image geometry cannot be measured reliably from a raster preview.</li><li>Use the workstation sliders / CST macro export, then verify with MATLAB/CST before fabrication.</li><li>For source code, run the correct language compiler, test suite, and CST validation; this desk does not execute uploaded code.</li></ul>`;
-      const fileSummary=selectedFiles.map(f=>`- ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join('\n');
-      latestMarkdown=`# ${verdict}\n\nAntenna: ${config.fullName || config.label}\n\nRequirement: ${goal}\n\nFiles:\n${fileSummary}\n\n## Checks\n${checks.map(c=>`- [${c.ok?'x':' '}] ${c.title}: ${c.detail}`).join('\n')}\n\n## Approximate model estimates\n${metricsText.map(([k,v])=>`- ${k}: ${v.toFixed(3)}`).join('\n')}\n\n## Limitations\nBrowser-local heuristics only. No cloud AI, image recognition, uploaded-code execution, compiler, or full-wave CST simulation was run.\n\n## Recommended next steps\n- Confirm dimensions and units; verify in CST/MATLAB before fabrication.\n- Compile/test source code separately.\n`;
-      download.disabled=false;
-    } catch (error) {
-      summary.innerHTML='<span class="review-badge">ERROR</span><span>Could not complete local analysis. Check file types and try again.</span>';
-      report.textContent=error.message || 'Analysis failed.';
-    } finally { button.disabled=false; button.textContent='⚡ RUN DETAILED REVIEW'; }
+  const parseMetric = (text, regex, convert = x => x) => {
+    const m = text.match(regex);
+    if (!m) return null;
+    const value = Number(m[1]);
+    return Number.isFinite(value) ? convert(value, (m[2]||'').toLowerCase()) : null;
   };
-  document.getElementById('review-run')?.addEventListener('click', run);
-  download.addEventListener('click', () => { if(!latestMarkdown)return; const url=URL.createObjectURL(new Blob([latestMarkdown],{type:'text/markdown'})); const a=document.createElement('a'); a.href=url; a.download='anteena-review.md'; a.click(); URL.revokeObjectURL(url); });
+  const metricsFromText = text => ({
+    frequency_GHz: parseMetric(text, /(?:resonant|center|centre|operating|target|design|frequency|f\s*0|fr)[^\d\r\n-]{0,30}(\d+(?:\.\d+)?)\s*(ghz|mhz)\b/i, (v,u)=>u==='mhz'?v/1000:v)
+      ?? parseMetric(text, /(\d+(?:\.\d+)?)\s*(ghz|mhz)\b/i, (v,u)=>u==='mhz'?v/1000:v),
+    s11_dB: parseMetric(text, /(?:s\s*11|return\s+loss|reflection\s+coefficient)[^\d\r\n]{0,28}(-?\d+(?:\.\d+)?)\s*db\b/i, v=>-Math.abs(v)),
+    gain_dBi: parseMetric(text, /gain[^\d\r\n]{0,24}(\d+(?:\.\d+)?)\s*dbi\b/i),
+    bandwidth_GHz: parseMetric(text, /(?:bandwidth|\bbw\b)[^\d\r\n]{0,24}(\d+(?:\.\d+)?)\s*(ghz|mhz)\b/i, (v,u)=>u==='mhz'?v/1000:v),
+  });
+  const parseSweep = contents => {
+    for (const item of contents) {
+      if (!/\.csv$/i.test(item.file.name) || !item.text) continue;
+      const lines=item.text.split(/\r?\n/).filter(x=>x.trim());
+      if(lines.length<3) continue;
+      const first=lines[0].split(/[;,\t]/).map(x=>x.trim().toLowerCase());
+      let xi=first.findIndex(x=>/freq|frequency|ghz|mhz/.test(x));
+      let yi=first.findIndex(x=>/s.?11|return.?loss|db\b/.test(x));
+      if(xi<0) xi=0; if(yi<0||yi===xi) yi=1;
+      const hasHeader=first.some(x=>/[a-z]/i.test(x));
+      const f=[], s11=[];
+      for(const line of lines.slice(hasHeader?1:0)) {
+        const c=line.split(/[;,\t]/).map(x=>Number(x.trim().replace(/"/g,'')));
+        if(!Number.isFinite(c[xi])||!Number.isFinite(c[yi])) continue;
+        let freq=c[xi]; const label=first[xi]||'';
+        if(/mhz/.test(label) || (freq>100 && freq<100000)) freq/=1000;
+        if(freq>0 && freq<200 && c[yi]<10 && c[yi]>-150){f.push(freq);s11.push(c[yi]);}
+      }
+      if(f.length>=3) {
+        let points=f.map((x,i)=>[x,s11[i]]).sort((a,b)=>a[0]-b[0]);
+        if(points.length>1500){const stride=(points.length-1)/1498;const sampled=Array.from({length:1499},(_,i)=>points[Math.round(i*stride)]);const minPoint=points.reduce((a,b)=>b[1]<a[1]?b:a);if(!sampled.some(p=>p[0]===minPoint[0]))sampled.push(minPoint);points=sampled.sort((a,b)=>a[0]-b[0]);}
+        return {f:points.map(x=>x[0]),s11:points.map(x=>x[1]),name:item.file.name};
+      }
+    }
+    return null;
+  };
+  const makeChart = (trace, label) => {
+    if (!trace || trace.f.length<2) return '<div class="review-chart-empty">Upload a CSV sweep with frequency and S11 columns to plot measured/simulated data. Without a sweep, no antenna response is fabricated.</div>';
+    const W=760,H=280,L=62,R=18,T=24,B=42;
+    const minX=Math.min(...trace.f), maxX=Math.max(...trace.f), minY=Math.min(-10,...trace.s11)-3, maxY=Math.max(0,...trace.s11)+2;
+    const X=x=>L+(x-minX)/(maxX-minX||1)*(W-L-R), Y=y=>T+(maxY-y)/(maxY-minY||1)*(H-T-B);
+    const d=trace.f.map((x,i)=>`${i?'L':'M'}${X(x).toFixed(1)},${Y(trace.s11[i]).toFixed(1)}`).join(' ');
+    const grid=[0,1,2,3,4].map(i=>{const val=minY+(maxY-minY)*i/4,y=Y(val);return `<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}"/><text x="${L-8}" y="${y+4}" text-anchor="end">${val.toFixed(0)}</text>`;}).join('');
+    return `<div class="review-chart-title">${esc(label)} · ${trace.f.length} sweep samples</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="S11 over frequency graph"><g class="chart-grid">${grid}<line x1="${L}" y1="${H-B}" x2="${W-R}" y2="${H-B}"/></g><path class="chart-trace" d="${d}"/><text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">Frequency (GHz)</text><text transform="translate(17 ${(H+T-B)/2}) rotate(-90)" text-anchor="middle">S11 (dB)</text><text x="${L}" y="${H-22}">${minX.toFixed(3)}</text><text x="${W-R}" y="${H-22}" text-anchor="end">${maxX.toFixed(3)}</text></svg>`;
+  };
+  const makeOutcomeChart = items => {
+    const good=items.filter(x=>x.ok).length, attention=items.length-good, total=Math.max(items.length,1);
+    const width=660, goodWidth=Math.round(540*good/total), badWidth=540-goodWidth;
+    return `<div class="review-chart-title">Review checkpoint summary · ${items.length} checks</div><svg viewBox="0 0 ${width} 120" role="img" aria-label="Review checks passed and requiring attention"><text x="20" y="30">PASS</text><rect x="110" y="14" width="540" height="24" rx="4" fill="#17212b"/><rect x="110" y="14" width="${goodWidth}" height="24" rx="4" fill="#22c55e"/><text x="${Math.min(640,120+goodWidth)}" y="31">${good}</text><text x="20" y="76">CHECK</text><rect x="110" y="60" width="540" height="24" rx="4" fill="#17212b"/><rect x="110" y="60" width="${badWidth}" height="24" rx="4" fill="#f59e0b"/><text x="${Math.min(640,120+badWidth)}" y="77">${attention}</text><text x="110" y="108">Local review findings only · not an EM simulation confidence score</text></svg>`;
+  };
+  const run = async () => {
+    const goal=document.getElementById('review-goal').value.trim();
+    if(!goal){summary.innerHTML='<span class="review-badge">NEED INPUT</span><span>Describe any antenna design and desired result.</span>';return;}
+    if(!selectedFiles.length && goal.length<12){summary.innerHTML='<span class="review-badge">NEED DETAILS</span><span>Add design details or upload design files.</span>';return;}
+    const button=document.getElementById('review-run'); button.disabled=true; button.textContent='ANALYZING ANY ANTENNA…';
+    summary.innerHTML='<span class="review-badge">ANALYZING</span><span>Reviewing your custom design and extracting available measurements…</span>';
+    try {
+      const contents=await Promise.all(selectedFiles.map(async file=>({file,...await readFile(file)})));
+      const allText=contents.map(x=>x.text).join('\n');
+      const goalMetrics=metricsFromText(goal), evidenceMetrics=metricsFromText(allText);
+      const trace=parseSweep(contents);
+      if(trace){ const idx=trace.s11.indexOf(Math.min(...trace.s11)); evidenceMetrics.frequency_GHz=trace.f[idx]; evidenceMetrics.s11_dB=trace.s11[idx]; }
+      const checks=[];
+      const warnings=contents.filter(x=>x.warning).map(x=>x.warning);
+      const images=contents.filter(x=>x.image), docs=contents.filter(x=>/\.docx?$/i.test(x.file.name));
+      const codeFiles=contents.filter(x=>/\.(py|m|js|ts|c|cpp|h|bas|vba|json|html|css)$/i.test(x.file.name));
+      for(const item of images){
+        const dims=await new Promise(resolve=>{const url=URL.createObjectURL(item.file),im=new Image();im.onload=()=>resolve({width:im.naturalWidth,height:im.naturalHeight,url});im.onerror=()=>resolve({width:0,height:0,url});im.src=url;});
+        item.dimensions=dims; checks.push({ok:dims.width>0,title:`Image ${item.file.name}`,detail:dims.width?`${dims.width} × ${dims.height} px image loaded. Geometry is not inferred automatically; include dimensions or a CAD/CST export.`:'Image could not be decoded.'});
+      }
+      if(docs.length) checks.push({ok:allText.trim().length>40,title:'Design document',detail:allText.trim().length?`${allText.trim().length.toLocaleString()} characters extracted from ${docs.length} Word file(s).`:'No text extracted; scanned pages and legacy .doc files need OCR/conversion.'});
+      if(codeFiles.length){const code=contents.filter(x=>codeFiles.includes(x)).map(x=>x.text).join('\n');checks.push({ok:!!code.trim(),title:'Source files',detail:`${codeFiles.length} source file(s), ${code.length.toLocaleString()} readable characters; source is inspected but never executed.`});if(/\b(TODO|FIXME|placeholder|not implemented)\b/i.test(code))checks.push({ok:false,title:'Unfinished code markers',detail:'TODO/FIXME/placeholder marker found.'});}
+      if(trace) checks.push({ok:true,title:'Frequency sweep',detail:`${trace.f.length} CSV points parsed from ${trace.name}; minimum S11 ${Math.min(...trace.s11).toFixed(2)} dB at ${trace.f[trace.s11.indexOf(Math.min(...trace.s11))].toFixed(4)} GHz.`});
+      if(goalMetrics.frequency_GHz!==null && evidenceMetrics.frequency_GHz!==null) checks.push({ok:Math.abs(goalMetrics.frequency_GHz-evidenceMetrics.frequency_GHz)<=Math.max(.01,goalMetrics.frequency_GHz*.02),title:'Resonance target vs. evidence',detail:`Target ${goalMetrics.frequency_GHz.toFixed(4)} GHz; uploaded evidence ${evidenceMetrics.frequency_GHz.toFixed(4)} GHz.`});
+      const targetS11=goal.match(/(?:s\s*11|return\s+loss)[^\n]{0,35}?(?:below|under|less than|<)\s*(-?\d+(?:\.\d+)?)\s*db/i);
+      if(targetS11 && evidenceMetrics.s11_dB!==null) checks.push({ok:evidenceMetrics.s11_dB<=Number(targetS11[1]),title:'S11 limit',detail:`Limit ≤ ${targetS11[1]} dB; evidence ${evidenceMetrics.s11_dB.toFixed(2)} dB.`});
+      const targetGain=goal.match(/gain[^\n]{0,35}?(?:above|over|greater than|>)\s*(\d+(?:\.\d+)?)\s*dbi/i);
+      if(targetGain && evidenceMetrics.gain_dBi!==null) checks.push({ok:evidenceMetrics.gain_dBi>=Number(targetGain[1]),title:'Gain limit',detail:`Target ≥ ${targetGain[1]} dBi; evidence ${evidenceMetrics.gain_dBi.toFixed(2)} dBi.`});
+      if(!checks.length) checks.push({ok:true,title:'Design received',detail:'Custom antenna description accepted. Add geometry, material, frequency sweep, and target thresholds for engineering verification.'});
+      const passed=checks.filter(x=>x.ok).length;
+      const verdict=checks.some(x=>!x.ok)||warnings.length?'REVIEW NEEDS ATTENTION':'ANALYSIS COMPLETE';
+      const checkHtml=checks.map(x=>`<li class="${x.ok?'good':'warn'}"><strong>${x.ok?'PASS':'CHECK'} — ${esc(x.title)}</strong><br>${esc(x.detail)}</li>`).join('');
+      const values=Object.entries(evidenceMetrics).filter(([,v])=>Number.isFinite(v)).map(([k,v])=>[k,v]);
+      const valueHtml=values.length?values.map(([k,v])=>`<li><code>${esc(k)}</code>: ${v.toFixed(5)}</li>`).join(''):'<li>No numeric performance data found in uploaded text/sweep.</li>';
+      const warningsHtml=warnings.length?`<h4>File warnings</h4><ul>${warnings.map(x=>`<li class="warn">${esc(x)}</li>`).join('')}</ul>`:'';
+      const preview=document.getElementById('review-image-preview'), firstImage=images.find(x=>x.dimensions?.url);
+      if(firstImage){preview.innerHTML=`<img src="${esc(firstImage.dimensions.url)}" alt="Uploaded antenna design preview"><div class="review-empty">Image preview · ${firstImage.dimensions.width} × ${firstImage.dimensions.height} px</div>`;preview.classList.remove('hidden');}else{preview.classList.add('hidden');preview.innerHTML='';}
+      charts.innerHTML=makeOutcomeChart(checks)+(trace?makeChart(trace,`S11 sweep · ${trace.name}`):'<div class="review-chart-empty">No S11 sweep was uploaded. Add a CSV with Frequency (GHz/MHz) and S11 (dB) columns for an evidence-based RF graph; no response curve is invented.</div>');
+      charts.classList.remove('hidden');
+      summary.innerHTML=`<span class="review-badge">${verdict}</span><span>${passed}/${checks.length} checks pass · any antenna type · ${selectedFiles.length} file(s)</span>`;
+      reportEl.innerHTML=`<h3>Custom antenna — detailed review</h3><p>${esc(goal)}</p><h4>Verification findings</h4><ul>${checkHtml}</ul><h4>Measurements extracted from files</h4><ul>${valueHtml}</ul><h4>Engineering assessment</h4><ul><li>${trace?'Antenna sweep data is plotted directly from the uploaded CSV.':'No sweep curve was fabricated; this report only states what could be extracted.'}</li><li>Image files are previewed, not computer-vision interpreted. Include dimensions/materials in text or upload CAD/CSV exports.</li><li>Generic antenna designs have no universal closed-form EM model. MATLAB receives this custom design and can report supplied sweeps/derive RF quantities, but it cannot independently simulate arbitrary geometry without a solver/model.</li><li>Use CST full-wave simulation and measurements before fabrication; source code is not executed by this review tool.</li></ul>${warningsHtml}<h4>Recommended next steps</h4><ul><li>Include substrate/material, geometry dimensions, feed/port, ground plane, target band, and boundary conditions.</li><li>Export CST/VNA frequency-versus-S11 data as CSV to get accurate plots and pass/fail checks.</li><li>Connect MATLAB below to transfer the custom description and numeric sweep data to the existing local live-verification link.</li></ul>`;
+      latestMatlabPayload={
+        antenna:'custom', antenna_name:'User-defined antenna', model:'review',
+        params:{review_received:1},
+        review:{description:goal.slice(0,8000),files:selectedFiles.map(f=>f.name).slice(0,30),measurements:evidenceMetrics,
+          trace_f_GHz:trace?trace.f.slice(0,1500):[],trace_s11_dB:trace?trace.s11.slice(0,1500):[]}
+      };
+      matlabSend.disabled=false; matlabStatus.textContent='Ready to send custom review and numeric sweep data to your local MATLAB bridge.';
+      const textChecks=checks.map(x=>`- [${x.ok?'x':' '}] ${x.title}: ${x.detail}`).join('\n');
+      latestMarkdown=`# ${verdict}\n\n## User requirements\n${goal}\n\n## Uploaded files\n${selectedFiles.map(f=>`- ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join('\n')||'- None'}\n\n## Findings\n${textChecks}\n\n## Extracted evidence\n${values.map(([k,v])=>`- ${k}: ${v}`).join('\n')||'- No numeric measurement extracted'}\n\n## Scope\nAny antenna type accepted. No image recognition, arbitrary-geometry EM solver, or source execution is claimed. CSV traces are plotted from user-provided data.\n`;
+      download.disabled=false;
+    } catch(err){summary.innerHTML='<span class="review-badge">ERROR</span><span>Unable to complete the review.</span>';reportEl.textContent=err.message||'Analysis failed.';}
+    finally{button.disabled=false;button.textContent='⚡ RUN DETAILED REVIEW';}
+  };
+  document.getElementById('review-run')?.addEventListener('click',run);
+  download.addEventListener('click',()=>{if(!latestMarkdown)return;const u=URL.createObjectURL(new Blob([latestMarkdown],{type:'text/markdown'}));const a=document.createElement('a');a.href=u;a.download='anteena-custom-review.md';a.click();URL.revokeObjectURL(u);});
+  matlabSend.addEventListener('click',async()=>{
+    if(!latestMatlabPayload)return;
+    matlabSend.disabled=true;matlabSend.textContent='CONNECTING TO LOCAL MATLAB…';matlabStatus.textContent='Looking for the MATLAB bridge on this PC. Allow local-network access if prompted.';
+    try{
+      enableLocalBridge(); const base=await findBridgeNow();
+      if(base===null) throw new Error('Bridge not found. Start python dashboard/bridge_server.py on the PC running MATLAB, then allow browser local-network access.');
+      const st=MatlabLink.status||{};
+      if(!isCurrentBridge(st)) throw new Error('The local server is not a current Anteena bridge. Update/start dashboard/bridge_server.py.');
+      if(!st.matlab_connected && !st.matlab_starting){matlabStatus.textContent='Bridge found. Asking it to start MATLAB live_verify…';const launch=await requestMatlabLaunch();if(!['launched','starting','already_connected'].includes(launch.status))throw new Error(launch.message||'Could not start MATLAB. Start live_verify manually.');}
+      const response=await fetch(bridgeUrl('/api/matlab/input'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(latestMatlabPayload)});
+      const ack=await response.json(); if(!response.ok||ack.status!=='ok')throw new Error(ack.message||'Bridge rejected custom analysis.');
+      matlabStatus.textContent=`Sent custom design to MATLAB bridge (input #${ack.seq}). Waiting for MATLAB report…`;
+      matlabSend.textContent='✅ SENT TO MATLAB';
+      const expected=ack.seq, started=Date.now();
+      const poll=async()=>{try{const r=await fetch(bridgeUrl('/api/status'),{cache:'no-store'}),status=await r.json();const result=status.matlab_result;if(result&&result.seq===expected){matlabStatus.textContent=`MATLAB ${result.status||'REPLIED'} · ${result.summary||'Custom review received.'}`;const row=`<h4>MATLAB live-link response</h4><p><strong>${esc(result.status||'RECEIVED')}</strong> — ${esc(result.summary||'Input received.')}</p>${Array.isArray(result.warnings)&&result.warnings.length?`<ul>${result.warnings.map(w=>`<li class="warn">${esc(w)}</li>`).join('')}</ul>`:''}`;reportEl.insertAdjacentHTML('beforeend',row);return;}}catch(_){}if(Date.now()-started<45000)setTimeout(poll,1500);else matlabStatus.textContent=`Input #${expected} is queued; MATLAB has not replied yet. Check the MATLAB live-link status in the top strip.`;};setTimeout(poll,1200);
+    }catch(err){matlabStatus.textContent=err.message;matlabSend.textContent='📊 RETRY MATLAB CONNECTION';matlabSend.disabled=false;return;}
+    setTimeout(()=>{matlabSend.disabled=false;matlabSend.textContent='📊 SEND CUSTOM ANALYSIS TO MATLAB';},3500);
+  });
 }
 
 function initGoogleAccount() {

@@ -2628,6 +2628,18 @@ body {
 .review-report code { color:#7dd3fc; overflow-wrap:anywhere; }
 .review-image-preview { text-align:center; max-height:220px; padding:8px; background:#070a0e; border:1px solid var(--win-border-hi); }
 .review-image-preview img { max-width:100%; max-height:200px; object-fit:contain; }
+.review-charts { display:grid; gap:10px; padding:10px; background:var(--win-dark); border:1px solid var(--win-border-hi); }
+.review-chart-title { color:var(--crt-text); font:12px var(--font-mono); margin-bottom:4px; }
+.review-charts svg { display:block; width:100%; max-height:300px; background:#060b10; color:#9aa8b8; font:11px var(--font-mono); }
+.review-charts svg text { fill:currentColor; font-size:10px; }
+.review-charts .chart-grid line { stroke:#334155; stroke-width:1; }
+.review-charts .chart-trace { fill:none; stroke:#00e5ff; stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
+.review-chart-empty { padding:14px; color:var(--text-muted); border:1px dashed var(--win-border-hi); font-size:11px; }
+.review-any-type { color:var(--crt-text); font:10px var(--font-mono); letter-spacing:.4px; }
+.review-matlab-actions { display:grid; gap:6px; }
+.review-matlab-actions button { min-height:38px; color:#fff; background:#0369a1; border-color:#38bdf8; }
+#review-send-matlab:disabled { opacity:.5; cursor:not-allowed; }
+.review-matlab-actions span { font-size:10px; line-height:1.4; }
 .review-empty { color:var(--text-muted); font-size:12px; }
 #review-download:disabled { opacity:.5; cursor:not-allowed; }
 .account-window { width:min(460px, 94vw); }

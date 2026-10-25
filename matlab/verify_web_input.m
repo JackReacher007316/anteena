@@ -60,6 +60,15 @@ function report = verify_web_input(cfg)
     report.computed_ms = NaN;
     report.received_at = '';
 
+    % Custom user-described antenna: MATLAB accepts the design and plots
+    % supplied sweep data, but does not pretend a generic geometry has an
+    % analytical/full-wave solver. Derived RF values come only from provided
+    % measurements or the supplied S11 trace.
+    if strcmp(report.antenna, 'custom')
+        report = verify_custom_review(report, cfg);
+        return;
+    end
+
     try
         [ml, info] = antenna_model(report.antenna, report.params);
     catch err
@@ -148,6 +157,80 @@ function report = verify_web_input(cfg)
     end
 
     report.rf = rf_figures(ml, f, s_ml);
+end
+
+% -------------------------------------------------------------------------
+function report = verify_custom_review(report, cfg)
+%VERIFY_CUSTOM_REVIEW  Accept user-defined topologies and inspect supplied data.
+    review = get_field(cfg, 'review', struct());
+    measurements = get_field(review, 'measurements', struct());
+    report.matlab = struct('Fr', NaN, 'S11', NaN, 'Gain', NaN, 'BW', NaN);
+    report.checks = empty_checks();
+    report.n_checks = 0;
+    report.n_pass = 0;
+    report.freq_range = [];
+    report.curve = struct('f', [], 'matlab', [], 'prediction', []);
+    report.prediction = struct();
+    report.warnings = {'Custom antenna accepted. MATLAB has no universal EM model for arbitrary geometry; values below are from your uploaded data, not a full-wave simulation.'};
+
+    if isstruct(measurements)
+        report.matlab.Fr = custom_num(measurements, 'frequency_GHz', NaN);
+        report.matlab.S11 = custom_num(measurements, 's11_dB', NaN);
+        report.matlab.Gain = custom_num(measurements, 'gain_dBi', NaN);
+        report.matlab.BW = custom_num(measurements, 'bandwidth_GHz', NaN);
+    end
+
+    f = get_field(review, 'trace_f_GHz', []);
+    s = get_field(review, 'trace_s11_dB', []);
+    if isnumeric(f) && isnumeric(s) && numel(f) == numel(s) && numel(f) >= 3
+        keep = isfinite(f(:)) & isfinite(s(:));
+        f = double(f(keep));
+        s = double(s(keep));
+        [f, order] = sort(f);
+        s = s(order);
+        if numel(f) >= 3 && all(diff(f) > 0)
+            report.curve.f = f(:)';
+            report.curve.matlab = s(:)';
+            [report.matlab.S11, at] = min(s);
+            report.matlab.Fr = f(at);
+            report.freq_range = [min(f), max(f)];
+            if isnan(report.matlab.BW)
+                [lo, hi] = band_edges(f, s, -10);
+                if isfinite(lo) && isfinite(hi)
+                    report.matlab.BW = hi - lo;
+                end
+            end
+        end
+    end
+
+    if isempty(report.curve.f) && isfinite(report.matlab.Fr) && ...
+            isfinite(report.matlab.S11) && isfinite(report.matlab.BW) && report.matlab.BW > 0
+        % Clearly approximate visualization based on user-provided summary
+        % metrics; never represented as an EM prediction.
+        f0 = report.matlab.Fr;
+        span = max(3 * report.matlab.BW, 0.05 * f0);
+        f = linspace(max(eps, f0 - span), f0 + span, 201);
+        sigma = max(report.matlab.BW / 2.355, eps);
+        s = -1 + (report.matlab.S11 + 1) .* exp(-0.5 .* ((f - f0) ./ sigma).^2);
+        report.curve.f = f;
+        report.curve.matlab = s;
+        report.freq_range = [min(f), max(f)];
+    end
+
+    report.status = 'CUSTOM DATA RECEIVED';
+    if ~isempty(report.curve.f)
+        report.summary = sprintf('Custom review received - plotted %d user-data sweep samples; no arbitrary-geometry solver was run', numel(report.curve.f));
+    else
+        report.summary = 'Custom design received in MATLAB - add a frequency/S11 sweep for RF plots; no generic EM solver was run';
+    end
+    report.rf = rf_figures(report.matlab, report.curve.f, report.curve.matlab);
+end
+
+function value = custom_num(s, field, fallback)
+    value = fallback;
+    if isstruct(s) && isfield(s, field) && isnumeric(s.(field)) && isscalar(s.(field)) && isfinite(s.(field))
+        value = double(s.(field));
+    end
 end
 
 % -------------------------------------------------------------------------
