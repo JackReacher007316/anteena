@@ -121,14 +121,6 @@ CST Parameter Sweep -> Export S-params / Gain Data
    Verify Best Design in CST (Full-wave)
 ```
 
-## Browser AI Review Desk, Uploads & Google sign-in
-
-Open **AI Review Desk** in the dashboard to attach antenna images, Word `.docx` files, and source/code files, describe the expected result, and download a detailed Markdown review. Files are read locally in the browser (12 MB per-file limit); DOCX text extraction uses Mammoth.js. The review includes basic source/document checks and default analytical-surrogate metrics for the selected antenna.
-
-**Important limits:** this GitHub Pages dashboard does not include a hosted LLM, visual image recognition, file execution, compiler, full-wave CST simulation, or secure user-account backend. Image uploads are previewed and checked for dimensions only. Treat its analysis as a helpful first-pass checklist; verify designs in CST/MATLAB and compile/test source code separately. Uploaded files are not sent to a server by this feature.
-
-Google sign-in is an optional Identity Services UI. To enable it, create an OAuth 2.0 **Web application** client in Google Cloud Console, configure the authorized JavaScript origin(s) for your deployment, then replace `GOOGLE_CLIENT_ID` in the `google-client-id` meta tag in `dashboard/index.html` with that client ID. This frontend demo only displays the returned identity; it does not establish a trusted session. Production login requires a backend to validate Google credentials and issue secure sessions. Never place a client secret in this repository.
-
 ## Quick Start
 
 ### 1. Generate Data from CST

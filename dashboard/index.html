@@ -4,9 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>HP-8753E / CST EM-CAD Workstation | ML Antenna Surrogate Framework</title>
-  <meta name="description" content="Antenna design workstation with local image, Word, and code review plus engineering analysis."/>
-  <!-- Set content to your Google OAuth Web Client ID to enable the Google Identity button. -->
-  <meta name="google-client-id" content="GOOGLE_CLIENT_ID" />
+  <meta name="description" content="Old School 1990s CAD & Vector Network Analyzer ML antenna surrogate modeling workstation. Real-time EM prediction and optimization."/>
   
   <!-- Retro & Monospace Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -44,8 +42,6 @@
     <div class="menu-item" id="btn-open-paper">📄 <u>P</u>aper (F3)</div>
     <div class="menu-item" id="btn-open-matlab">📊 <u>M</u>ATLAB Co-Sim (F4)</div>
     <div class="menu-item" id="btn-menu-encyclopedia">📖 <u>E</u>ncyclopedia</div>
-    <div class="menu-item" id="btn-open-review">🧠 <u>A</u>I Review Desk</div>
-    <div class="menu-item" id="btn-open-account">👤 <u>A</u>ccount / Google sign-in</div>
     <div class="menu-item dropdown-parent">
       <u>D</u>isplay Theme ▼
       <div class="retro-dropdown" id="theme-dropdown">
@@ -1120,57 +1116,6 @@
     </div>
   </div>
 
-  <!-- Privacy-first upload review desk: files are processed in this browser. -->
-  <div class="modal-overlay hidden" id="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-title">
-    <section class="review-window">
-      <header class="notepad-titlebar">
-        <div class="notepad-title" id="review-title">🧠 ANTENNA AI REVIEW DESK — IMAGE · WORD · CODE</div>
-        <button class="os-btn-close" id="review-close" aria-label="Close">✕</button>
-      </header>
-      <div class="review-intro">
-        <strong>Describe the result you expect, add your design files, then run a detailed review.</strong>
-        <span>Privacy-first: uploads stay in this browser. This engineering assistant uses local checks and the site's antenna models; it does not claim to run a full-wave CST simulation or a cloud LLM.</span>
-      </div>
-      <div class="review-grid">
-        <div class="review-inputs">
-          <label class="review-label" for="review-antenna">Antenna model</label>
-          <select id="review-antenna" class="retro-select"></select>
-          <label class="review-label" for="review-goal">Desired output / requirements</label>
-          <textarea id="review-goal" class="review-textarea" placeholder="Example: verify a 2.4 GHz patch antenna, S11 below -10 dB, gain above 5 dBi. Check that the source includes dimensions and a runnable CST macro."></textarea>
-          <label class="review-label">Upload design image, Word document, or code</label>
-          <label class="review-drop" id="review-drop" for="review-files">
-            <span class="review-drop-icon">⇧</span><strong>Drop files here or browse</strong>
-            <small>Images: PNG/JPG/WebP · Word: DOCX · Code/text: .m .py .js .c .cpp .bas .vba .txt .md</small>
-          </label>
-          <input id="review-files" type="file" multiple accept="image/*,.docx,.doc,.txt,.md,.py,.m,.js,.ts,.c,.cpp,.h,.bas,.vba,.json,.html,.css" hidden />
-          <div id="review-file-list" class="review-file-list"><span class="review-empty">No files added yet.</span></div>
-          <button class="tactile-btn review-run" id="review-run">⚡ RUN DETAILED REVIEW</button>
-        </div>
-        <div class="review-output">
-          <div class="review-summary" id="review-summary"><span class="review-badge">READY</span><span>Add a requirement and at least one file to start.</span></div>
-          <div id="review-image-preview" class="review-image-preview hidden"></div>
-          <div id="review-report" class="review-report"><div class="review-empty">Your findings, checks, warnings, and recommended next steps will appear here.</div></div>
-          <button class="tactile-btn" id="review-download" disabled>⬇ DOWNLOAD ANALYSIS (.MD)</button>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <div class="modal-overlay hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-title">
-    <section class="account-window">
-      <header class="notepad-titlebar"><div class="notepad-title" id="account-title">👤 ANTEENA ACCOUNT</div><button class="os-btn-close" id="account-close" aria-label="Close">✕</button></header>
-      <div class="account-content">
-        <div class="account-mark">📡</div><h2>Welcome to Anteena</h2>
-        <p>Sign in with Google to personalize this workstation. Google OAuth requires your own OAuth web client ID; no credentials are embedded in this public repository.</p>
-        <div id="google-signin-button"></div>
-        <div id="account-message" class="account-message">Google sign-in isn't configured yet. Add your OAuth client ID to the <code>GOOGLE_CLIENT_ID</code> meta tag in dashboard/index.html and enable the Google Identity Services JavaScript API.</div>
-        <div id="account-profile" class="account-profile hidden"></div>
-        <button class="tactile-btn hidden" id="account-signout">SIGN OUT</button>
-        <small>Demo UI only: production authentication must verify the Google credential on a trusted backend. This static GitHub Pages site cannot securely manage user sessions.</small>
-      </div>
-    </section>
-  </div>
-
   <!-- ═══════════════════════════════════════════════════════════════════
        RETRO BOTTOM STATUS BAR (RECESSED PANELS)
   ══════════════════════════════════════════════════════════════════════ -->
@@ -1185,7 +1130,6 @@
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js" defer></script>
 <script src="app.js"></script>
 </body>
 </html>
