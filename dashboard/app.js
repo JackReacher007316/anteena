@@ -4793,12 +4793,14 @@ function initUploadReview() {
   const reportEl = document.getElementById('review-report');
   const summary = document.getElementById('review-summary');
   const download = document.getElementById('review-download');
+  const codeDownload = document.getElementById('review-download-classifier');
   const charts = document.getElementById('review-charts');
   const matlabSend = document.getElementById('review-send-matlab');
   const matlabStatus = document.getElementById('review-matlab-status');
   if (!modal || !filesInput) return;
   const selectedFiles = [];
   let latestMarkdown = '';
+  let classifierCode = '';
   let latestMatlabPayload = null;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const open = () => modal.classList.remove('hidden');
@@ -4874,6 +4876,41 @@ function initUploadReview() {
     }
     return null;
   };
+  const classifyAntennaType = (goal, contents) => {
+    const aliases = {
+      patch:['microstrip patch','patch antenna','microstrip','patch'], mimo:['mimo','pifa','multi input multi output'], uwb:['uwb','ultra wideband'],
+      '5g':['5g','mmwave','millimeter wave','phased array'], fractal:['fractal','sierpinski'], horn:['pyramidal horn','horn antenna'],
+      helical:['helical','helix antenna'], dipole:['dipole','half wave'], yagi:['yagi','yagi uda'], dra:['dielectric resonator','dra'],
+      bowtie:['bow tie','bowtie'], slot:['slot antenna','slot'], logperiodic:['log periodic','logperiodic','lpda'], vivaldi:['vivaldi','tapered slot'],
+      parabolic:['parabolic reflector','dish antenna','parabolic'], loop:['loop antenna','magnetic loop'], monopole:['monopole'], lens:['lens antenna','dielectric lens'],
+      ifa:['inverted f antenna','ifa'], cassegrain:['cassegrain'], corrugatedhorn:['corrugated horn'], biquad:['biquad','bi quad'],
+      spiral:['spiral antenna','spiral'], discone:['discone'], turnstile:['turnstile'], cornerreflector:['corner reflector'],
+      patcharray:['patch array','microstrip array'], collinear:['collinear array','collinear'], ris:['reconfigurable intelligent surface','intelligent reflecting surface','ris','metasurface'], whip:['whip antenna','whip']
+    };
+    classifierCode = `// Keyword-based antenna classifier. It examines text/filenames, not image pixels.\nconst ANTENNA_TYPE_KEYWORDS = ${JSON.stringify(aliases, null, 2)};\nfunction classifyAntennaType(text) {\n  const normalized = String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();\n  const padded = ' ' + normalized + ' ';
+  const hits = Object.entries(ANTENNA_TYPE_KEYWORDS).flatMap(([type, words]) => words.filter(word => padded.includes(' ' + word + ' ')).map(word => ({type, word})));\n  hits.sort((a, b) => b.word.length - a.word.length);\n  return hits.length ? {type: hits[0].type, matchedKeyword: hits[0].word, alternatives: [...new Set(hits.slice(1).map(hit => hit.type))]} : {type: 'unknown', matchedKeyword: null, alternatives: []};\n}\n\n// Example: classifyAntennaType('Yagi-Uda antenna for 900 MHz');\n`;
+    const normalize = text => String(text||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    const sources=[{label:'requirements',weight:1.0,text:goal}];
+    contents.forEach(item=>{
+      sources.push({label:`filename ${item.file.name}`,weight:.88,text:item.file.name});
+      if(item.text) sources.push({label:`file text ${item.file.name}`,weight:.76,text:item.text.slice(0,100000)});
+    });
+    const scores=Object.entries(ANTENNA_CONFIGS).map(([key,cfg])=>{
+      const terms=[key,cfg.label,cfg.fullName,...(aliases[key]||[])].map(normalize).filter(x=>x.length>=3);
+      let score=0, sourceLabels=[];
+      for(const src of sources){
+        const text=` ${normalize(src.text)} `;
+        const hit=terms.filter(term=>text.includes(` ${term} `)).sort((a,b)=>b.length-a.length)[0];
+        if(hit){score+=src.weight*(.68+.32*Math.min(hit.length,16)/16);sourceLabels.push(src.label);}
+      }
+      return {key,label:cfg.fullName||cfg.label,score,sources:[...new Set(sourceLabels)]};
+    }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+    if(!scores.length)return {key:null,label:'Could not identify from available text',confidence:0,source:'No antenna-specific keywords found',alternatives:[]};
+    const best=scores[0], runner=scores[1];
+    const ambiguous=runner && best.score-runner.score<.12;
+    const confidence=Math.max(.55,Math.min(.98,.52+best.score*.23+(best.sources.length > 1 ? .08 : 0)-(ambiguous ? .14 : 0)));
+    return {key:best.key,label:ambiguous?'Ambiguous — '+best.label:best.label,confidence,source:best.sources.join(', '),alternatives:scores.slice(1,3).map(x=>x.label)};
+  };
   const makeChart = (trace, label) => {
     if (!trace || trace.f.length<2) return '<div class="review-chart-empty">Upload a CSV sweep with frequency and S11 columns to plot measured/simulated data. Without a sweep, no antenna response is fabricated.</div>';
     const W=760,H=280,L=62,R=18,T=24,B=42;
@@ -4898,6 +4935,7 @@ function initUploadReview() {
       const contents=await Promise.all(selectedFiles.map(async file=>({file,...await readFile(file)})));
       const allText=contents.map(x=>x.text).join('\n');
       const goalMetrics=metricsFromText(goal), evidenceMetrics=metricsFromText(allText);
+      const classification=classifyAntennaType(goal,contents);
       const trace=parseSweep(contents);
       if(trace){ const idx=trace.s11.indexOf(Math.min(...trace.s11)); evidenceMetrics.frequency_GHz=trace.f[idx]; evidenceMetrics.s11_dB=trace.s11[idx]; }
       const checks=[];
@@ -4927,23 +4965,25 @@ function initUploadReview() {
       if(firstImage){preview.innerHTML=`<img src="${esc(firstImage.dimensions.url)}" alt="Uploaded antenna design preview"><div class="review-empty">Image preview · ${firstImage.dimensions.width} × ${firstImage.dimensions.height} px</div>`;preview.classList.remove('hidden');}else{preview.classList.add('hidden');preview.innerHTML='';}
       charts.innerHTML=makeOutcomeChart(checks)+(trace?makeChart(trace,`S11 sweep · ${trace.name}`):'<div class="review-chart-empty">No S11 sweep was uploaded. Add a CSV with Frequency (GHz/MHz) and S11 (dB) columns for an evidence-based RF graph; no response curve is invented.</div>');
       charts.classList.remove('hidden');
-      summary.innerHTML=`<span class="review-badge">${verdict}</span><span>${passed}/${checks.length} checks pass · any antenna type · ${selectedFiles.length} file(s)</span>`;
-      reportEl.innerHTML=`<h3>Custom antenna — detailed review</h3><p>${esc(goal)}</p><h4>Verification findings</h4><ul>${checkHtml}</ul><h4>Measurements extracted from files</h4><ul>${valueHtml}</ul><h4>Engineering assessment</h4><ul><li>${trace?'Antenna sweep data is plotted directly from the uploaded CSV.':'No sweep curve was fabricated; this report only states what could be extracted.'}</li><li>Image files are previewed, not computer-vision interpreted. Include dimensions/materials in text or upload CAD/CSV exports.</li><li>Generic antenna designs have no universal closed-form EM model. MATLAB receives this custom design and can report supplied sweeps/derive RF quantities, but it cannot independently simulate arbitrary geometry without a solver/model.</li><li>Use CST full-wave simulation and measurements before fabrication; source code is not executed by this review tool.</li></ul>${warningsHtml}<h4>Recommended next steps</h4><ul><li>Include substrate/material, geometry dimensions, feed/port, ground plane, target band, and boundary conditions.</li><li>Export CST/VNA frequency-versus-S11 data as CSV to get accurate plots and pass/fail checks.</li><li>Connect MATLAB below to transfer the custom description and numeric sweep data to the existing local live-verification link.</li></ul>`;
+      summary.innerHTML=`<span class="review-badge">${verdict}</span><span>Likely type: ${esc(classification.label)} · ${Math.round(classification.confidence*100)}% keyword score · ${passed}/${checks.length} checks</span>`;
+      const typeAlternatives=classification.alternatives.length?` Possible alternatives: ${classification.alternatives.map(esc).join(', ')}.`:'';
+      reportEl.innerHTML=`<h3>Custom antenna — detailed review</h3><p>${esc(goal)}</p><h4>Antenna type identification</h4><p><strong>${esc(classification.label)}</strong> · ${Math.round(classification.confidence*100)}% heuristic keyword score. Evidence: ${esc(classification.source)}.${typeAlternatives}</p><p class="review-empty">Identification uses antenna terminology in your description, filenames, and readable document/code text—not image pixels. An image with no descriptive text cannot be reliably classified by this browser-only classifier.</p><h4>Verification findings</h4><ul>${checkHtml}</ul><h4>Measurements extracted from files</h4><ul>${valueHtml}</ul><h4>Engineering assessment</h4><ul><li>${trace?'Antenna sweep data is plotted directly from the uploaded CSV.':'No sweep curve was fabricated; this report only states what could be extracted.'}</li><li>Image files are previewed, not computer-vision interpreted. Include dimensions/materials in text or upload CAD/CSV exports.</li><li>Generic antenna designs have no universal closed-form EM model. MATLAB receives this custom design and can report supplied sweeps/derive RF quantities, but it cannot independently simulate arbitrary geometry without a solver/model.</li><li>Use CST full-wave simulation and measurements before fabrication; source code is not executed by this review tool.</li></ul>${warningsHtml}<h4>Recommended next steps</h4><ul><li>Include substrate/material, geometry dimensions, feed/port, ground plane, target band, and boundary conditions.</li><li>Export CST/VNA frequency-versus-S11 data as CSV to get accurate plots and pass/fail checks.</li><li>Connect MATLAB below to transfer the custom description and numeric sweep data to the existing local live-verification link.</li></ul>`;
       latestMatlabPayload={
-        antenna:'custom', antenna_name:'User-defined antenna', model:'review',
+        antenna:'custom', antenna_name:classification.key?(ANTENNA_CONFIGS[classification.key].fullName||ANTENNA_CONFIGS[classification.key].label):'User-defined antenna', model:'review',
         params:{review_received:1},
-        review:{description:goal.slice(0,8000),files:selectedFiles.map(f=>f.name).slice(0,30),measurements:evidenceMetrics,
+        review:{description:goal.slice(0,8000),detected_type:classification.label,type_confidence:classification.confidence,detection_basis:classification.source,files:selectedFiles.map(f=>f.name).slice(0,30),measurements:evidenceMetrics,
           trace_f_GHz:trace?trace.f.slice(0,1500):[],trace_s11_dB:trace?trace.s11.slice(0,1500):[]}
       };
       matlabSend.disabled=false; matlabStatus.textContent='Ready to send custom review and numeric sweep data to your local MATLAB bridge.';
       const textChecks=checks.map(x=>`- [${x.ok?'x':' '}] ${x.title}: ${x.detail}`).join('\n');
-      latestMarkdown=`# ${verdict}\n\n## User requirements\n${goal}\n\n## Uploaded files\n${selectedFiles.map(f=>`- ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join('\n')||'- None'}\n\n## Findings\n${textChecks}\n\n## Extracted evidence\n${values.map(([k,v])=>`- ${k}: ${v}`).join('\n')||'- No numeric measurement extracted'}\n\n## Scope\nAny antenna type accepted. No image recognition, arbitrary-geometry EM solver, or source execution is claimed. CSV traces are plotted from user-provided data.\n`;
-      download.disabled=false;
+      latestMarkdown=`# ${verdict}\n\n## Antenna type identification\n${classification.label} (${Math.round(classification.confidence*100)}% heuristic keyword score)\nEvidence: ${classification.source||'none'}\n\n## User requirements\n${goal}\n\n## Uploaded files\n${selectedFiles.map(f=>`- ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join('\n')||'- None'}\n\n## Findings\n${textChecks}\n\n## Extracted evidence\n${values.map(([k,v])=>`- ${k}: ${v}`).join('\n')||'- No numeric measurement extracted'}\n\n## Scope\nAny antenna type accepted. No image recognition, arbitrary-geometry EM solver, or source execution is claimed. CSV traces are plotted from user-provided data.\n`;
+      download.disabled=false; codeDownload.disabled=false;
     } catch(err){summary.innerHTML='<span class="review-badge">ERROR</span><span>Unable to complete the review.</span>';reportEl.textContent=err.message||'Analysis failed.';}
     finally{button.disabled=false;button.textContent='⚡ RUN DETAILED REVIEW';}
   };
   document.getElementById('review-run')?.addEventListener('click',run);
   download.addEventListener('click',()=>{if(!latestMarkdown)return;const u=URL.createObjectURL(new Blob([latestMarkdown],{type:'text/markdown'}));const a=document.createElement('a');a.href=u;a.download='anteena-custom-review.md';a.click();URL.revokeObjectURL(u);});
+  codeDownload.addEventListener('click',()=>{if(!classifierCode)return;const u=URL.createObjectURL(new Blob([classifierCode],{type:'text/javascript'}));const a=document.createElement('a');a.href=u;a.download='antenna-type-classifier.js';a.click();URL.revokeObjectURL(u);});
   matlabSend.addEventListener('click',async()=>{
     if(!latestMatlabPayload)return;
     matlabSend.disabled=true;matlabSend.textContent='CONNECTING TO LOCAL MATLAB…';matlabStatus.textContent='Looking for the MATLAB bridge on this PC. Allow local-network access if prompted.';
