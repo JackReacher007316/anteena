@@ -1129,27 +1129,31 @@
       </header>
       <div class="review-intro">
         <strong>Describe the result you expect, add your design files, then run a detailed review.</strong>
-        <span>Privacy-first: uploads stay in this browser. This engineering assistant uses local checks and the site's antenna models; it does not claim to run a full-wave CST simulation or a cloud LLM.</span>
+        <span>Accepts custom antenna types. Files are analyzed in-browser; optional MATLAB connection sends your written requirements and extracted numeric sweep data to your local bridge, not the uploaded files.</span>
       </div>
       <div class="review-grid">
         <div class="review-inputs">
-          <label class="review-label" for="review-antenna">Antenna model</label>
-          <select id="review-antenna" class="retro-select"></select>
-          <label class="review-label" for="review-goal">Desired output / requirements</label>
-          <textarea id="review-goal" class="review-textarea" placeholder="Example: verify a 2.4 GHz patch antenna, S11 below -10 dB, gain above 5 dBi. Check that the source includes dimensions and a runnable CST macro."></textarea>
+          <label class="review-label" for="review-goal">Describe any antenna design and desired result</label>
+          <textarea id="review-goal" class="review-textarea" placeholder="Any antenna type is accepted. Describe geometry/materials and target specs, e.g. custom spiral antenna, 2.4 GHz, S11 below -10 dB, gain above 5 dBi, bandwidth 200 MHz. You can also upload simulation CSV data."></textarea>
+          <div class="review-any-type">NO FIXED ANTENNA LIST · describe any geometry or upload its files</div>
           <label class="review-label">Upload design image, Word document, or code</label>
           <label class="review-drop" id="review-drop" for="review-files">
             <span class="review-drop-icon">⇧</span><strong>Drop files here or browse</strong>
-            <small>Images: PNG/JPG/WebP · Word: DOCX · Code/text: .m .py .js .c .cpp .bas .vba .txt .md</small>
+            <small>Images: PNG/JPG/WebP · Word: DOCX · Code/text/data: .m .py .js .c .cpp .bas .vba .txt .md .csv</small>
           </label>
-          <input id="review-files" type="file" multiple accept="image/*,.docx,.doc,.txt,.md,.py,.m,.js,.ts,.c,.cpp,.h,.bas,.vba,.json,.html,.css" hidden />
+          <input id="review-files" type="file" multiple accept="image/*,.docx,.doc,.txt,.md,.py,.m,.js,.ts,.c,.cpp,.h,.bas,.vba,.json,.html,.css,.csv" hidden />
           <div id="review-file-list" class="review-file-list"><span class="review-empty">No files added yet.</span></div>
           <button class="tactile-btn review-run" id="review-run">⚡ RUN DETAILED REVIEW</button>
         </div>
         <div class="review-output">
           <div class="review-summary" id="review-summary"><span class="review-badge">READY</span><span>Add a requirement and at least one file to start.</span></div>
           <div id="review-image-preview" class="review-image-preview hidden"></div>
-          <div id="review-report" class="review-report"><div class="review-empty">Your findings, checks, warnings, and recommended next steps will appear here.</div></div>
+          <div id="review-charts" class="review-charts hidden"></div>
+          <div id="review-report" class="review-report"><div class="review-empty">Your findings, checks, warnings, charts, and recommended next steps will appear here.</div></div>
+          <div class="review-matlab-actions">
+            <button class="tactile-btn" id="review-send-matlab" disabled>📊 SEND CUSTOM ANALYSIS TO MATLAB</button>
+            <span id="review-matlab-status" class="review-empty">Run an analysis first; MATLAB connection is optional.</span>
+          </div>
           <button class="tactile-btn" id="review-download" disabled>⬇ DOWNLOAD ANALYSIS (.MD)</button>
         </div>
       </div>

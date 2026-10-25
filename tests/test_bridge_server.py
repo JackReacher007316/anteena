@@ -114,6 +114,26 @@ class BridgeTestCase(unittest.TestCase):
         self.assertEqual(mirrored["seq"], 1)
         self.assertEqual(mirrored["params"], PATCH_INPUT["params"])
 
+    def test_custom_antenna_review_metadata_reaches_matlab(self):
+        payload = {
+            "antenna": "custom", "antenna_name": "User-defined antenna",
+            "model": "review", "params": {"review_received": 1},
+            "review": {
+                "description": "Custom helical array at 3.5 GHz",
+                "measurements": {"frequency_GHz": 3.5, "s11_dB": -18.2},
+                "trace_f_GHz": [3.4, 3.5, 3.6],
+                "trace_s11_dB": [-4.0, -18.2, -5.0],
+            },
+        }
+        code, ack = self.post("/api/matlab/input", payload)
+        self.assertEqual((code, ack["status"]), (200, "ok"))
+        _, received = self.get("/api/matlab/input?since=-1")
+        self.assertEqual(received["antenna"], "custom")
+        self.assertEqual(received["review"], payload["review"])
+        with open(self.data_file, encoding="utf-8") as fh:
+            mirrored = json.load(fh)
+        self.assertEqual(mirrored["review"], payload["review"])
+
     def test_unchanged_only_within_same_session(self):
         self.post("/api/matlab/input", PATCH_INPUT)
         _, got = self.get("/api/matlab/input?since=-1&client=matlab")

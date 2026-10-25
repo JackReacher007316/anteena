@@ -218,7 +218,7 @@ class LinkState:
             "model": str(payload.get("model", "gpr")),
             "params": payload.get("params", {}),
         }
-        for key in ("param_meta", "freq_range", "dashboard", "client_time"):
+        for key in ("param_meta", "freq_range", "dashboard", "client_time", "review"):
             if key in payload:
                 record[key] = payload[key]
         with self.lock:
