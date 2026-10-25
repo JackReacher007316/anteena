@@ -2642,6 +2642,16 @@ body {
 .review-matlab-actions span { font-size:10px; line-height:1.4; }
 .review-empty { color:var(--text-muted); font-size:12px; }
 #review-download:disabled, #review-download-classifier:disabled { opacity:.5; cursor:not-allowed; }
+.review-agent { display:grid; gap:8px; padding:10px; border:1px solid #0ea5e9; background:#07121c; }
+.review-agent-title { color:#7dd3fc; font:13px var(--font-mono); }
+.review-chat-log { max-height:180px; overflow:auto; display:grid; gap:7px; padding:6px; background:#050a0f; }
+.review-chat-message { max-width:96%; padding:7px 9px; border-radius:4px; font-size:11px; line-height:1.5; white-space:pre-wrap; }
+.review-chat-message.agent { color:#d7e8f7; background:#102435; justify-self:start; }
+.review-chat-message.user { color:#fff; background:#075985; justify-self:end; }
+.review-chat-compose { display:flex; gap:6px; }
+.review-chat-compose input { min-width:0; flex:1; padding:8px; color:var(--text-main); background:var(--win-dark); border:1px solid var(--win-border-hi); font:12px var(--font-code); }
+.review-chat-compose button { color:#fff; background:#0369a1; border-color:#38bdf8; }
+.review-agent small { color:var(--text-muted); font-size:10px; line-height:1.4; }
 .account-window { width:min(460px, 94vw); }
 .account-content { padding:26px; display:flex; align-items:center; flex-direction:column; text-align:center; gap:12px; }
 .account-mark { font-size:42px; }

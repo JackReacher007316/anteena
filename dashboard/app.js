@@ -4802,6 +4802,7 @@ function initUploadReview() {
   let latestMarkdown = '';
   let classifierCode = '';
   let latestMatlabPayload = null;
+  let latestReviewContext = null;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const open = () => modal.classList.remove('hidden');
   const close = () => modal.classList.add('hidden');
@@ -4925,11 +4926,34 @@ function initUploadReview() {
     const width=660, goodWidth=Math.round(540*good/total), badWidth=540-goodWidth;
     return `<div class="review-chart-title">Review checkpoint summary · ${items.length} checks</div><svg viewBox="0 0 ${width} 120" role="img" aria-label="Review checks passed and requiring attention"><text x="20" y="30">PASS</text><rect x="110" y="14" width="540" height="24" rx="4" fill="#17212b"/><rect x="110" y="14" width="${goodWidth}" height="24" rx="4" fill="#22c55e"/><text x="${Math.min(640,120+goodWidth)}" y="31">${good}</text><text x="20" y="76">CHECK</text><rect x="110" y="60" width="540" height="24" rx="4" fill="#17212b"/><rect x="110" y="60" width="${badWidth}" height="24" rx="4" fill="#f59e0b"/><text x="${Math.min(640,120+badWidth)}" y="77">${attention}</text><text x="110" y="108">Local review findings only · not an EM simulation confidence score</text></svg>`;
   };
+  const extractImageProfile = file => new Promise(resolve => {
+    const url=URL.createObjectURL(file), image=new Image();
+    image.onload=()=>{
+      try {
+        const w=Math.min(320,image.naturalWidth), h=Math.max(1,Math.round(image.naturalHeight*w/image.naturalWidth));
+        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0,w,h);
+        const rgba=ctx.getImageData(0,0,w,h).data, border=[];
+        for(let x=0;x<w;x++){border.push((rgba[x*4]+rgba[x*4+1]+rgba[x*4+2])/3);const i=((h-1)*w+x)*4;border.push((rgba[i]+rgba[i+1]+rgba[i+2])/3);}
+        for(let y=1;y<h-1;y++){for(const x of [0,w-1]){const i=(y*w+x)*4;border.push((rgba[i]+rgba[i+1]+rgba[i+2])/3);}}
+        border.sort((a,b)=>a-b);const bg=border[Math.floor(border.length/2)]||255, threshold=34;
+        const cols=new Array(w).fill(0), rows=new Array(h).fill(0);let foreground=0;
+        for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4,gray=(rgba[i]+rgba[i+1]+rgba[i+2])/3;if(Math.abs(gray-bg)>threshold){cols[x]++;rows[y]++;foreground++;}}
+        resolve({url,width:image.naturalWidth,height:image.naturalHeight,profile:cols.map(v=>v/h),rowProfile:rows.map(v=>v/w),foregroundRatio:foreground/(w*h),background:bg});
+      }catch(_){resolve({url,width:image.naturalWidth,height:image.naturalHeight,profile:null,rowProfile:null,foregroundRatio:null});}
+    };
+    image.onerror=()=>resolve({url,width:0,height:0,profile:null,rowProfile:null,foregroundRatio:null});image.src=url;
+  });
+  const makeImageChart = item => {
+    if(!item.profile) return '';
+    const W=760,H=220,L=58,R=18,T=24,B=38,denom=Math.max(...item.profile,0.01);
+    const points=item.profile.map((v,i)=>`${i?'L':'M'}${(L+i/(item.profile.length-1)*(W-L-R)).toFixed(1)},${(H-B-v/denom*(H-T-B)).toFixed(1)}`).join(' ');
+    return `<div><div class="review-chart-title">Image profile · ${esc(item.file.name)} · contrast pixels by horizontal position</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Image-derived antenna silhouette profile"><g class="chart-grid"><line x1="${L}" y1="${T}" x2="${W-R}" y2="${T}"/><line x1="${L}" y1="${(T+H-B)/2}" x2="${W-R}" y2="${(T+H-B)/2}"/><line x1="${L}" y1="${H-B}" x2="${W-R}" y2="${H-B}"/></g><path class="chart-trace image-profile-trace" d="${points}"/><text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">Image width (normalized)</text><text transform="translate(16 ${(H+T-B)/2}) rotate(-90)" text-anchor="middle">Silhouette occupancy (normalized)</text><text x="${L}" y="${H-20}">0</text><text x="${W-R}" y="${H-20}" text-anchor="end">1</text></svg><small class="review-empty">Image-only visual graph; it is not an RF/S11 simulation.</small></div>`;
+  };
   const run = async () => {
     const goal=document.getElementById('review-goal').value.trim();
-    if(!goal){summary.innerHTML='<span class="review-badge">NEED INPUT</span><span>Describe any antenna design and desired result.</span>';return;}
-    if(!selectedFiles.length && goal.length<12){summary.innerHTML='<span class="review-badge">NEED DETAILS</span><span>Add design details or upload design files.</span>';return;}
-    const button=document.getElementById('review-run'); button.disabled=true; button.textContent='ANALYZING ANY ANTENNA…';
+    if(!goal && !selectedFiles.length){summary.innerHTML='<span class="review-badge">UPLOAD DESIGN</span><span>Choose an antenna image, Word/code file, or add a short design note.</span>';return;}
+    const button=document.getElementById('review-run'); button.disabled=true; button.textContent='ANALYZING DESIGN…';
     summary.innerHTML='<span class="review-badge">ANALYZING</span><span>Reviewing your custom design and extracting available measurements…</span>';
     try {
       const contents=await Promise.all(selectedFiles.map(async file=>({file,...await readFile(file)})));
@@ -4943,8 +4967,9 @@ function initUploadReview() {
       const images=contents.filter(x=>x.image), docs=contents.filter(x=>/\.docx?$/i.test(x.file.name));
       const codeFiles=contents.filter(x=>/\.(py|m|js|ts|c|cpp|h|bas|vba|json|html|css)$/i.test(x.file.name));
       for(const item of images){
-        const dims=await new Promise(resolve=>{const url=URL.createObjectURL(item.file),im=new Image();im.onload=()=>resolve({width:im.naturalWidth,height:im.naturalHeight,url});im.onerror=()=>resolve({width:0,height:0,url});im.src=url;});
-        item.dimensions=dims; checks.push({ok:dims.width>0,title:`Image ${item.file.name}`,detail:dims.width?`${dims.width} × ${dims.height} px image loaded. Geometry is not inferred automatically; include dimensions or a CAD/CST export.`:'Image could not be decoded.'});
+        const dims=await extractImageProfile(item.file);
+        item.dimensions=dims;
+        checks.push({ok:dims.width>0,title:`Image ${item.file.name}`,detail:dims.width?`${dims.width} × ${dims.height} px loaded; local contrast/silhouette profile extracted (${Number.isFinite(dims.foregroundRatio)?(dims.foregroundRatio*100).toFixed(1)+'%':'unavailable'} foreground estimate). This is a shape profile, not antenna topology recognition or EM simulation.`:'Image could not be decoded.'});
       }
       if(docs.length) checks.push({ok:allText.trim().length>40,title:'Design document',detail:allText.trim().length?`${allText.trim().length.toLocaleString()} characters extracted from ${docs.length} Word file(s).`:'No text extracted; scanned pages and legacy .doc files need OCR/conversion.'});
       if(codeFiles.length){const code=contents.filter(x=>codeFiles.includes(x)).map(x=>x.text).join('\n');checks.push({ok:!!code.trim(),title:'Source files',detail:`${codeFiles.length} source file(s), ${code.length.toLocaleString()} readable characters; source is inspected but never executed.`});if(/\b(TODO|FIXME|placeholder|not implemented)\b/i.test(code))checks.push({ok:false,title:'Unfinished code markers',detail:'TODO/FIXME/placeholder marker found.'});}
@@ -4959,19 +4984,20 @@ function initUploadReview() {
       const verdict=checks.some(x=>!x.ok)||warnings.length?'REVIEW NEEDS ATTENTION':'ANALYSIS COMPLETE';
       const checkHtml=checks.map(x=>`<li class="${x.ok?'good':'warn'}"><strong>${x.ok?'PASS':'CHECK'} — ${esc(x.title)}</strong><br>${esc(x.detail)}</li>`).join('');
       const values=Object.entries(evidenceMetrics).filter(([,v])=>Number.isFinite(v)).map(([k,v])=>[k,v]);
+      latestReviewContext={goal,classification,checks,evidenceMetrics,trace,images,files:selectedFiles.map(f=>f.name)};
       const valueHtml=values.length?values.map(([k,v])=>`<li><code>${esc(k)}</code>: ${v.toFixed(5)}</li>`).join(''):'<li>No numeric performance data found in uploaded text/sweep.</li>';
       const warningsHtml=warnings.length?`<h4>File warnings</h4><ul>${warnings.map(x=>`<li class="warn">${esc(x)}</li>`).join('')}</ul>`:'';
       const preview=document.getElementById('review-image-preview'), firstImage=images.find(x=>x.dimensions?.url);
       if(firstImage){preview.innerHTML=`<img src="${esc(firstImage.dimensions.url)}" alt="Uploaded antenna design preview"><div class="review-empty">Image preview · ${firstImage.dimensions.width} × ${firstImage.dimensions.height} px</div>`;preview.classList.remove('hidden');}else{preview.classList.add('hidden');preview.innerHTML='';}
-      charts.innerHTML=makeOutcomeChart(checks)+(trace?makeChart(trace,`S11 sweep · ${trace.name}`):'<div class="review-chart-empty">No S11 sweep was uploaded. Add a CSV with Frequency (GHz/MHz) and S11 (dB) columns for an evidence-based RF graph; no response curve is invented.</div>');
+      charts.innerHTML=makeOutcomeChart(checks)+images.map(makeImageChart).join('')+(trace?makeChart(trace,`S11 sweep · ${trace.name}`):'<div class="review-chart-empty">No RF sweep uploaded. Image uploads still produce the silhouette graph above; for an RF/S11-vs-frequency graph, upload a CSV sweep.</div>');
       charts.classList.remove('hidden');
       summary.innerHTML=`<span class="review-badge">${verdict}</span><span>Likely type: ${esc(classification.label)} · ${Math.round(classification.confidence*100)}% keyword score · ${passed}/${checks.length} checks</span>`;
       const typeAlternatives=classification.alternatives.length?` Possible alternatives: ${classification.alternatives.map(esc).join(', ')}.`:'';
-      reportEl.innerHTML=`<h3>Custom antenna — detailed review</h3><p>${esc(goal)}</p><h4>Antenna type identification</h4><p><strong>${esc(classification.label)}</strong> · ${Math.round(classification.confidence*100)}% heuristic keyword score. Evidence: ${esc(classification.source)}.${typeAlternatives}</p><p class="review-empty">Identification uses antenna terminology in your description, filenames, and readable document/code text—not image pixels. An image with no descriptive text cannot be reliably classified by this browser-only classifier.</p><h4>Verification findings</h4><ul>${checkHtml}</ul><h4>Measurements extracted from files</h4><ul>${valueHtml}</ul><h4>Engineering assessment</h4><ul><li>${trace?'Antenna sweep data is plotted directly from the uploaded CSV.':'No sweep curve was fabricated; this report only states what could be extracted.'}</li><li>Image files are previewed, not computer-vision interpreted. Include dimensions/materials in text or upload CAD/CSV exports.</li><li>Generic antenna designs have no universal closed-form EM model. MATLAB receives this custom design and can report supplied sweeps/derive RF quantities, but it cannot independently simulate arbitrary geometry without a solver/model.</li><li>Use CST full-wave simulation and measurements before fabrication; source code is not executed by this review tool.</li></ul>${warningsHtml}<h4>Recommended next steps</h4><ul><li>Include substrate/material, geometry dimensions, feed/port, ground plane, target band, and boundary conditions.</li><li>Export CST/VNA frequency-versus-S11 data as CSV to get accurate plots and pass/fail checks.</li><li>Connect MATLAB below to transfer the custom description and numeric sweep data to the existing local live-verification link.</li></ul>`;
+      reportEl.innerHTML=`<h3>Custom antenna — detailed review</h3><p>${esc(goal||'Image/file uploaded for automatic review.')}</p><h4>Antenna type identification</h4><p><strong>${esc(classification.label)}</strong> · ${Math.round(classification.confidence*100)}% heuristic keyword score. Evidence: ${esc(classification.source)}.${typeAlternatives}</p><p class="review-empty">Identification uses antenna terminology in your description, filenames, and readable document/code text—not image pixels. An image with no descriptive text cannot be reliably classified by this browser-only classifier.</p><h4>Verification findings</h4><ul>${checkHtml}</ul><h4>Measurements extracted from files</h4><ul>${valueHtml}</ul><h4>Engineering assessment</h4><ul><li>${trace?'Antenna sweep data is plotted directly from the uploaded CSV.':'No sweep curve was fabricated; this report only states what could be extracted.'}</li><li>Image files produce a contrast/silhouette profile graph, but this is not computer-vision antenna-type recognition or an RF response. Include dimensions/materials or a CAD/CSV export for engineering checks.</li><li>Generic antenna designs have no universal closed-form EM model. MATLAB receives this custom design and can report supplied sweeps/derive RF quantities, but it cannot independently simulate arbitrary geometry without a solver/model.</li><li>Use CST full-wave simulation and measurements before fabrication; source code is not executed by this review tool.</li></ul>${warningsHtml}<h4>Recommended next steps</h4><ul><li>Include substrate/material, geometry dimensions, feed/port, ground plane, target band, and boundary conditions.</li><li>Export CST/VNA frequency-versus-S11 data as CSV to get accurate plots and pass/fail checks.</li><li>Connect MATLAB below to transfer the custom description and numeric sweep data to the existing local live-verification link.</li></ul>`;
       latestMatlabPayload={
         antenna:'custom', antenna_name:classification.key?(ANTENNA_CONFIGS[classification.key].fullName||ANTENNA_CONFIGS[classification.key].label):'User-defined antenna', model:'review',
         params:{review_received:1},
-        review:{description:goal.slice(0,8000),detected_type:classification.label,type_confidence:classification.confidence,detection_basis:classification.source,files:selectedFiles.map(f=>f.name).slice(0,30),measurements:evidenceMetrics,
+        review:{description:(goal||'Image/file-only design review').slice(0,8000),detected_type:classification.label,type_confidence:classification.confidence,detection_basis:classification.source,files:selectedFiles.map(f=>f.name).slice(0,30),image_profiles:images.map(x=>({name:x.file.name,width:x.dimensions.width,height:x.dimensions.height,foreground_ratio:x.dimensions.foregroundRatio})),measurements:evidenceMetrics,
           trace_f_GHz:trace?trace.f.slice(0,1500):[],trace_s11_dB:trace?trace.s11.slice(0,1500):[]}
       };
       matlabSend.disabled=false; matlabStatus.textContent='Ready to send custom review and numeric sweep data to your local MATLAB bridge.';
@@ -4981,6 +5007,25 @@ function initUploadReview() {
     } catch(err){summary.innerHTML='<span class="review-badge">ERROR</span><span>Unable to complete the review.</span>';reportEl.textContent=err.message||'Analysis failed.';}
     finally{button.disabled=false;button.textContent='⚡ RUN DETAILED REVIEW';}
   };
+  const chatLog=document.getElementById('review-chat-log'), chatInput=document.getElementById('review-chat-input');
+  const addChat=(role,text)=>{const bubble=document.createElement('div');bubble.className=`review-chat-message ${role}`;bubble.textContent=text;chatLog.appendChild(bubble);chatLog.scrollTop=chatLog.scrollHeight;};
+  const answerQuestion=question=>{
+    const q=question.toLowerCase(), c=latestReviewContext;
+    if(!c)return 'Upload a design and click Analyze first. I will use that review to answer your question.';
+    if(/type|classif|what antenna|which antenna/.test(q))return `Likely type: ${c.classification.label} (${Math.round(c.classification.confidence*100)}% keyword-match score). Evidence: ${c.classification.source||'no antenna-specific text found'}. This score is not image-recognition confidence; describe the shape or use a descriptive filename for a better guess.`;
+    if(/graph|plot|chart|curve/.test(q))return c.trace?`The S11 graph plots ${c.trace.f.length} frequency/S11 points from ${c.trace.name}. Its minimum is ${Math.min(...c.trace.s11).toFixed(2)} dB at ${c.trace.f[c.trace.s11.indexOf(Math.min(...c.trace.s11))].toFixed(4)} GHz.`:c.images.length?'The graph shown for your image is a pixel-contrast silhouette profile across image width. It is not an RF simulation. Upload a CSV with Frequency (GHz) and S11 (dB) columns for the RF response graph.':'The graph summarizes review checks. Upload a frequency/S11 CSV to get an RF sweep graph.';
+    if(/s11|return loss|reflection/.test(q))return Number.isFinite(c.evidenceMetrics.s11_dB)?`The uploaded evidence has S11 ≈ ${c.evidenceMetrics.s11_dB.toFixed(2)} dB${c.trace?` near ${c.evidenceMetrics.frequency_GHz.toFixed(4)} GHz`:''}. A more negative S11 means less reflected power; around −10 dB is a common matching target, not a universal pass criterion.`:'I could not extract S11 from the files. Upload a CST/VNA sweep CSV or a report containing S11 values.';
+    if(/frequency|resonan|bandwidth|\bbw\b/.test(q))return `Extracted frequency: ${Number.isFinite(c.evidenceMetrics.frequency_GHz)?c.evidenceMetrics.frequency_GHz.toFixed(4)+' GHz':'not found'}. Extracted bandwidth: ${Number.isFinite(c.evidenceMetrics.bandwidth_GHz)?c.evidenceMetrics.bandwidth_GHz.toFixed(4)+' GHz':'not found'}. Upload sweep data for more reliable values.`;
+    if(/gain/.test(q))return Number.isFinite(c.evidenceMetrics.gain_dBi)?`Extracted gain is ${c.evidenceMetrics.gain_dBi.toFixed(2)} dBi. Confirm whether the source reports realized gain or directivity and check the measurement/simulation setup.`:'I could not find a numeric gain in the uploaded text. Add gain (dBi) to your requirements or report.';
+    if(/matlab|cst|connect/.test(q))return 'Use SEND CUSTOM ANALYSIS TO MATLAB. The local bridge transfers the description and numeric sweep values; start dashboard/bridge_server.py and MATLAB live_verify on your PC if the bridge is not found. Arbitrary geometry still needs its own CST model or MATLAB solver.';
+    if(/recommend|improv|next|fabricat|design/.test(q))return 'Next: provide substrate/material, dimensions, feed and ground geometry, target frequency, and boundary conditions. Upload CST/VNA Frequency-vs-S11 CSV for the RF graph, then verify the geometry in CST/MATLAB before fabrication.';
+    const matching=Object.entries(ANTENNA_CONFIGS).find(([key,cfg])=>q.includes(key)||q.includes((cfg.label||'').toLowerCase())||q.includes((cfg.fullName||'').toLowerCase()));
+    if(matching){const [,cfg]=matching;return `${cfg.fullName}. ${cfg.description} Typical applications: ${(cfg.applications||[]).join(', ')}. This is reference information, not a classification from the image pixels.`;}
+    return `From this review I can explain the likely type (${c.classification.label}), extracted values, graph, or MATLAB link. I don't have a cloud language model connected; add more design details or ask a specific question about S11, frequency, bandwidth, gain, or next steps.`;
+  };
+  const sendChat=()=>{const q=chatInput.value.trim();if(!q)return;addChat('user',q);chatInput.value='';setTimeout(()=>addChat('agent',answerQuestion(q)),120);};
+  document.getElementById('review-chat-send')?.addEventListener('click',sendChat);
+  chatInput?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendChat();}});
   document.getElementById('review-run')?.addEventListener('click',run);
   download.addEventListener('click',()=>{if(!latestMarkdown)return;const u=URL.createObjectURL(new Blob([latestMarkdown],{type:'text/markdown'}));const a=document.createElement('a');a.href=u;a.download='anteena-custom-review.md';a.click();URL.revokeObjectURL(u);});
   codeDownload.addEventListener('click',()=>{if(!classifierCode)return;const u=URL.createObjectURL(new Blob([classifierCode],{type:'text/javascript'}));const a=document.createElement('a');a.href=u;a.download='antenna-type-classifier.js';a.click();URL.revokeObjectURL(u);});
