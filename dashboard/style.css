@@ -2641,7 +2641,7 @@ body {
 #review-send-matlab:disabled { opacity:.5; cursor:not-allowed; }
 .review-matlab-actions span { font-size:10px; line-height:1.4; }
 .review-empty { color:var(--text-muted); font-size:12px; }
-#review-download:disabled { opacity:.5; cursor:not-allowed; }
+#review-download:disabled, #review-download-classifier:disabled { opacity:.5; cursor:not-allowed; }
 .account-window { width:min(460px, 94vw); }
 .account-content { padding:26px; display:flex; align-items:center; flex-direction:column; text-align:center; gap:12px; }
 .account-mark { font-size:42px; }
