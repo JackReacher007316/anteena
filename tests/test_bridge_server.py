@@ -114,6 +114,23 @@ class BridgeTestCase(unittest.TestCase):
         self.assertEqual(mirrored["seq"], 1)
         self.assertEqual(mirrored["params"], PATCH_INPUT["params"])
 
+    def test_local_image_ai_status_explains_missing_trained_model(self):
+        code, status = self.get("/api/ai/status")
+        self.assertEqual(code, 200)
+        self.assertFalse(status["ready"])
+        self.assertIn("train_antenna_image_classifier.py", status["training_command"])
+        self.assertIn("class_counts", status)
+
+    def test_local_image_classifier_requires_a_trained_model(self):
+        code, result = self.post("/api/ai/classify", raw=b"not-a-real-image", content_type="image/png")
+        self.assertEqual(code, 503)
+        self.assertEqual(result["status"], "not_trained")
+
+    def test_ai_training_image_rejects_non_image_content(self):
+        code, result = self.post("/api/ai/training-image?label=patch", raw=b"text", content_type="text/plain")
+        self.assertEqual(code, 415)
+        self.assertEqual(result["status"], "error")
+
     def test_custom_antenna_review_metadata_reaches_matlab(self):
         payload = {
             "antenna": "custom", "antenna_name": "User-defined antenna",

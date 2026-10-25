@@ -25,6 +25,10 @@ Desktop.ini
 scratch_*.ps1
 scratch_*.py
 
+# Local antenna vision training data and fitted model artifacts
+/data/antenna_images/
+/data/models/
+
 # Atomic-write temp files of the dashboard bridge
 data/.user_input.*.tmp
 data/bridge.log*

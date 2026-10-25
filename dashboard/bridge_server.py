@@ -70,13 +70,17 @@ DEFAULT_LOG_FILE = os.path.join(PROJECT_ROOT, "data", "bridge.log")
 CST_EXE = r"C:\CST\AMD64\CST DESIGN ENVIRONMENT_AMD64.exe"
 
 # Bumped when the API changes; the dashboard flags older bridges.
-BRIDGE_API = 3
+BRIDGE_API = 4
 # MATLAB is reported as connected while its last poll is younger than this.
 MATLAB_TIMEOUT_S = 3.0
 # After a launch MATLAB needs a while before its first poll; don't launch again.
 LAUNCH_GRACE_S = 120.0
-# Upper bound for request bodies (inputs/results are a few KB).
+# Upper bounds for request bodies. ML image uploads are handled only by the local bridge.
 MAX_BODY_BYTES = 1_000_000
+MAX_AI_IMAGE_BYTES = 12 * 1024 * 1024
+AI_TRAINING_DIR = os.path.join(PROJECT_ROOT, "data", "antenna_images")
+_AI_TRAIN_LOCK = threading.Lock()
+_AI_TRAIN_STATE = {"status": "idle", "message": "No training job started.", "output": ""}
 
 # Browser origins allowed to call the API cross-origin, in addition to the
 # dashboard served by this bridge itself (same origin needs no CORS):
@@ -390,11 +394,26 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"pong": True, "time": time.time()})
         elif parsed.path == "/api/matlab/input":
             self.handle_matlab_poll(parse_qs(parsed.query))
+        elif parsed.path == "/api/ai/status":
+            self.handle_ai_status()
         else:
             super().do_GET()  # static dashboard files
 
     def do_POST(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/api/ai/classify":
+            self.handle_ai_classify()
+            return
+        if path == "/api/ai/training-image":
+            self.handle_ai_training_image(parse_qs(parsed.query))
+            return
+        if path == "/api/ai/train":
+            if not self.is_json_request():
+                self.send_json({"status": "error", "message": "Content-Type must be application/json"}, 415)
+                return
+            self.handle_ai_train()
+            return
         if path in API_POST_PATHS and not self.is_json_request():
             # Browsers send JSON only after a CORS preflight, which unknown
             # websites fail; plain-text/form posts are never accepted.
@@ -452,6 +471,99 @@ class BridgeRequestHandler(http.server.SimpleHTTPRequestHandler):
         self._cors_headers()
         self.end_headers()
         self.wfile.write(body)
+
+    # -- local trained image AI ------------------------------------------------
+    def image_classifier(self):
+        module_dir = os.path.join(PROJECT_ROOT, "python")
+        if module_dir not in sys.path:
+            sys.path.insert(0, module_dir)
+        import antenna_image_classifier
+        return antenna_image_classifier
+
+    def read_image_body(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length") from exc
+        if length <= 0:
+            raise ValueError("empty image upload")
+        if length > MAX_AI_IMAGE_BYTES:
+            raise ValueError("image exceeds the 12 MB limit")
+        body = self.rfile.read(length)
+        if len(body) != length:
+            raise ValueError("incomplete image upload")
+        return body
+
+    def handle_ai_status(self):
+        try:
+            status = self.image_classifier().model_status()
+            with _AI_TRAIN_LOCK:
+                status["training"] = dict(_AI_TRAIN_STATE)
+            self.send_json(status)
+        except Exception as exc:
+            self.send_json({"ready": False, "message": f"Image AI service unavailable: {exc}"}, 503)
+
+    def handle_ai_train(self):
+        global _AI_TRAIN_STATE
+        with _AI_TRAIN_LOCK:
+            if _AI_TRAIN_STATE.get("status") == "running":
+                self.send_json({"status": "running", "message": "Training is already in progress."}, 202)
+                return
+            _AI_TRAIN_STATE = {"status": "running", "message": "Training the antenna image model on labeled local examples.", "output": ""}
+        threading.Thread(target=self._run_ai_training, daemon=True, name="AntennaImageTraining").start()
+        self.send_json({"status": "running", "message": "Training started on this PC. Keep the bridge running."}, 202)
+
+    @staticmethod
+    def _run_ai_training():
+        global _AI_TRAIN_STATE
+        script = os.path.join(PROJECT_ROOT, "python", "train_antenna_image_classifier.py")
+        command = [sys.executable, script, "--dataset", AI_TRAINING_DIR]
+        try:
+            result = subprocess.run(command, cwd=PROJECT_ROOT, capture_output=True,
+                                   text=True, timeout=900, check=False)
+            output = (result.stdout + "\n" + result.stderr)[-12000:]
+            state = "ready" if result.returncode == 0 else "error"
+            message = "Training complete. The trained model is ready on this PC." if result.returncode == 0 else "Training failed. See the training output for details."
+        except subprocess.TimeoutExpired as exc:
+            output = ((exc.stdout or "") + "\nTraining exceeded the 15-minute limit.")[-12000:]
+            state, message = "error", "Training timed out. Reduce dataset size or train from the command line."
+        except OSError as exc:
+            output = str(exc)
+            state, message = "error", "Could not start the local training process."
+        with _AI_TRAIN_LOCK:
+            _AI_TRAIN_STATE = {"status": state, "message": message, "output": output}
+
+    def handle_ai_classify(self):
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if not (content_type.startswith("image/") or content_type == "application/octet-stream"):
+            self.send_json({"status": "error", "message": "Upload an image using its image MIME type."}, 415)
+            return
+        try:
+            result = self.image_classifier().classify_image(self.read_image_body())
+            self.send_json(result)
+        except ValueError as exc:
+            self.send_json({"status": "error", "message": str(exc)}, 400)
+        except RuntimeError as exc:
+            self.send_json({"status": "not_trained", "ready": False, "message": str(exc)}, 503)
+        except Exception as exc:
+            self.send_json({"status": "error", "message": f"Image classifier failed: {exc}"}, 500)
+
+    def handle_ai_training_image(self, query):
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if not (content_type.startswith("image/") or content_type == "application/octet-stream"):
+            self.send_json({"status": "error", "message": "Training example must be an image."}, 415)
+            return
+        labels = query.get("label", [])
+        label = labels[0] if labels else ""
+        try:
+            result = self.image_classifier().save_labeled_image(self.read_image_body(), label)
+            self.send_json(result)
+        except ValueError as exc:
+            self.send_json({"status": "error", "message": str(exc)}, 400)
+        except RuntimeError as exc:
+            self.send_json({"status": "unavailable", "message": str(exc)}, 503)
+        except Exception as exc:
+            self.send_json({"status": "error", "message": f"Could not save training image: {exc}"}, 500)
 
     # -- endpoints ------------------------------------------------------------
     def handle_input(self):

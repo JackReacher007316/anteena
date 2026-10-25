@@ -2642,7 +2642,13 @@ body {
 .review-matlab-actions span { font-size:10px; line-height:1.4; }
 .review-empty { color:var(--text-muted); font-size:12px; }
 #review-download:disabled, #review-download-classifier:disabled { opacity:.5; cursor:not-allowed; }
-.review-agent { display:grid; gap:8px; padding:10px; border:1px solid #0ea5e9; background:#07121c; }
+.review-agent, .review-trained-model { display:grid; gap:8px; padding:10px; border:1px solid #0ea5e9; background:#07121c; }
+.review-trained-model { border-color:#a855f7; background:#120c1b; }
+.review-trained-model p { color:var(--text-muted); font-size:11px; line-height:1.45; }
+.review-trained-model button { color:#fff; background:#6b21a8; border-color:#c084fc; }
+.review-trained-model button:disabled { opacity:.5; cursor:not-allowed; }
+.review-chat-compose select { flex:1; min-width:0; }
+.review-trained-result { color:#86efac; font:12px/1.5 var(--font-mono); white-space:pre-wrap; }
 .review-agent-title { color:#7dd3fc; font:13px var(--font-mono); }
 .review-chat-log { max-height:180px; overflow:auto; display:grid; gap:7px; padding:6px; background:#050a0f; }
 .review-chat-message { max-width:96%; padding:7px 9px; border-radius:4px; font-size:11px; line-height:1.5; white-space:pre-wrap; }
