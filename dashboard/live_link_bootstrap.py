@@ -3,10 +3,10 @@
 live_link_bootstrap.py - ONE-COMMAND setup of the web dashboard <-> MATLAB live link.
 
 Windows, press Win+R and paste (install.ps1 finds or installs Python, then runs this):
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteena/install.ps1'))"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteenahelp/install.ps1'))"
 
 With Python already installed, this works too:
-    py -3 -c "import urllib.request as u; exec(u.urlopen('https://jackreacher007316.github.io/anteena/dashboard/live_link_bootstrap.py').read())"
+    py -3 -c "import urllib.request as u; exec(u.urlopen('https://jackreacher007316.github.io/anteenahelp/dashboard/live_link_bootstrap.py').read())"
 
 What it does
   1. downloads the PC connector (this repository) into %USERPROFILE%\\anteena-live
@@ -35,7 +35,7 @@ import time
 import zipfile
 from urllib.request import urlopen
 
-ZIP_URL = ("https://github.com/JackReacher007316/anteena/archive/refs/heads/"
+ZIP_URL = ("https://github.com/JackReacher007316/anteenahelp/archive/refs/heads/"
            "arena/000da5f3-anteena.zip")
 DEFAULT_DEST = os.path.join(os.path.expanduser("~"), "anteena-live")
 DEFAULT_PORT = 8000

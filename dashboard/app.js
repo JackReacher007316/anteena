@@ -5681,7 +5681,7 @@ const BRIDGE_LOCAL_URL = 'http://127.0.0.1:8000';
 const BRIDGE_STORE_KEY = 'anteena.matlabBridge';
 const AUTO_START_KEY = 'anteena.matlabAutoStart';
 // The "PC connector": this repository (bridge + MATLAB files + install_live_link.bat).
-const CONNECTOR_ZIP_URL = 'https://github.com/JackReacher007316/anteena/archive/refs/heads/arena/000da5f3-anteena.zip';
+const CONNECTOR_ZIP_URL = 'https://github.com/JackReacher007316/anteenahelp/archive/refs/heads/arena/000da5f3-anteena.zip';
 
 const MatlabLink = {
   pending: null,      // newest payload waiting to be sent

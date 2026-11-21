@@ -2,7 +2,7 @@
 #  Web dashboard <-> MATLAB live link - ONE-COMMAND setup for Windows
 #
 #  Press Win+R, paste this line and press Enter:
-#    powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteena/install.ps1'))"
+#    powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteenahelp/install.ps1'))"
 #
 #  1. finds Python 3 (installs it with winget if it is missing)
 #  2. downloads the PC connector into %USERPROFILE%\anteena-live
@@ -17,7 +17,7 @@ try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch { }
 
-$BootstrapUrl = 'https://jackreacher007316.github.io/anteena/dashboard/live_link_bootstrap.py'
+$BootstrapUrl = 'https://jackreacher007316.github.io/anteenahelp/dashboard/live_link_bootstrap.py'
 
 function Test-PythonExe {
     param([string]$Exe, [string[]]$Pre)

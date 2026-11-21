@@ -1,14 +1,14 @@
 # ML-Based Antenna Design & Optimization Framework
 ### Integrating CST Studio Suite + MATLAB + Python ML
 
-**Live website:** https://jackreacher007316.github.io/anteena/ - the dashboard, hosted on GitHub
+**Live website:** https://jackreacher007316.github.io/anteenahelp/ - the dashboard, hosted on GitHub
 Pages and online 24/7 (it does not depend on your PC).
 
 **Connect it to MATLAB on your Windows PC - one command, once:** press `Win`+`R`, paste this line
 and press Enter. It installs everything (Python too, if missing), checks MATLAB, and opens the
 website; click **Allow** if the browser asks. Details: [Live link](#5-live-link-web-dashboard---matlab-verification).
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteena/install.ps1'))"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://jackreacher007316.github.io/anteenahelp/install.ps1'))"
 ```
 
 ## Project Overview
@@ -216,7 +216,7 @@ You can also click **CONNECT MATLAB (LIVE)** in the dashboard, which asks the br
 start MATLAB for you. If MATLAB is not in a standard location, set the `MATLAB_EXE`
 environment variable first.
 
-**From the public website** (https://jackreacher007316.github.io/anteena/): MATLAB still
+**From the public website** (https://jackreacher007316.github.io/anteenahelp/): MATLAB still
 runs on your PC, so the hosted page talks to the bridge on your own machine.
 1. The bridge must run on your PC: `install_live_link.bat` (once), or
    `start_live_verification.bat`, or `python dashboard/bridge_server.py`.
