@@ -2633,9 +2633,18 @@ body {
 .review-charts svg { display:block; width:100%; max-height:300px; background:#060b10; color:#9aa8b8; font:11px var(--font-mono); }
 .review-charts svg text { fill:currentColor; font-size:10px; }
 .review-charts .chart-grid line { stroke:#334155; stroke-width:1; }
+.review-charts .polar-grid circle, .review-charts .polar-grid line { fill:none; stroke:#334155; stroke-width:1; }
 .review-charts .chart-trace { fill:none; stroke:#00e5ff; stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
 .review-chart-empty { padding:14px; color:var(--text-muted); border:1px dashed var(--win-border-hi); font-size:11px; }
 .review-any-type { color:var(--crt-text); font:10px var(--font-mono); letter-spacing:.4px; }
+.review-reference-inputs { display:grid; gap:7px; padding:9px; border:1px solid #8b5cf6; background:#100d19; }
+.review-reference-inputs strong { color:#c4b5fd; font:11px var(--font-mono); text-transform:uppercase; }
+.review-reference-inputs > span { color:var(--text-muted); font-size:11px; line-height:1.4; }
+.review-reference-inputs input { box-sizing:border-box; width:100%; min-width:0; padding:8px; color:var(--text-main); background:var(--win-dark); border:1px solid var(--win-border-hi); font:12px var(--font-code); }
+.review-reference-frequency { display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:8px; color:var(--text-muted); font-size:11px; }
+.review-reference-frequency label { color:var(--crt-text); font:11px var(--font-mono); }
+.review-charts .estimated-trace { stroke:#fbbf24; stroke-dasharray:7 5; }
+.review-charts .polar-trace { fill:rgba(251,191,36,.08); }
 .review-matlab-actions { display:grid; gap:6px; }
 .review-matlab-actions button { min-height:38px; color:#fff; background:#0369a1; border-color:#38bdf8; }
 #review-send-matlab:disabled { opacity:.5; cursor:not-allowed; }
