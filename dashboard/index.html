@@ -5,8 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>HP-8753E / CST EM-CAD Workstation | ML Antenna Surrogate Framework</title>
   <meta name="description" content="Antenna design workstation with local image, Word, and code review plus engineering analysis."/>
-  <!-- Set content to your Google OAuth Web Client ID to enable the Google Identity button. -->
-  <meta name="google-client-id" content="GOOGLE_CLIENT_ID" />
+  <!-- Firebase Web config is public client configuration, not a private credential. Fill these after creating the Firebase project. -->
+  <meta name="firebase-api-key" content="FIREBASE_API_KEY" />
+  <meta name="firebase-auth-domain" content="FIREBASE_AUTH_DOMAIN" />
+  <meta name="firebase-project-id" content="FIREBASE_PROJECT_ID" />
+  <meta name="firebase-app-id" content="FIREBASE_APP_ID" />
   
   <!-- Retro & Monospace Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -45,7 +48,7 @@
     <div class="menu-item" id="btn-open-matlab">📊 <u>M</u>ATLAB Co-Sim (F4)</div>
     <div class="menu-item" id="btn-menu-encyclopedia">📖 <u>E</u>ncyclopedia</div>
     <div class="menu-item" id="btn-open-review">🧠 <u>A</u>I Review Desk</div>
-    <div class="menu-item" id="btn-open-account">👤 <u>A</u>ccount / Google sign-in</div>
+    <div class="menu-item" id="btn-open-account">👤 <u>A</u>ccount / sign in</div>
     <div class="menu-item dropdown-parent">
       <u>D</u>isplay Theme ▼
       <div class="retro-dropdown" id="theme-dropdown">
@@ -1191,12 +1194,22 @@
       <header class="notepad-titlebar"><div class="notepad-title" id="account-title">👤 ANTEENA ACCOUNT</div><button class="os-btn-close" id="account-close" aria-label="Close">✕</button></header>
       <div class="account-content">
         <div class="account-mark">📡</div><h2>Welcome to Anteena</h2>
-        <p>Sign in with Google to personalize this workstation. Google OAuth requires your own OAuth web client ID; no credentials are embedded in this public repository.</p>
-        <div id="google-signin-button"></div>
-        <div id="account-message" class="account-message">Google sign-in isn't configured yet. Add your OAuth client ID to the <code>GOOGLE_CLIENT_ID</code> meta tag in dashboard/index.html and enable the Google Identity Services JavaScript API.</div>
+        <p>Create an account with email/password, or sign in using Google or GitHub. Firebase Authentication manages provider verification and browser sessions.</p>
+        <div class="account-auth-options">
+          <button class="tactile-btn account-provider" id="account-google" type="button">CONTINUE WITH GOOGLE</button>
+          <button class="tactile-btn account-provider" id="account-github" type="button">CONTINUE WITH GITHUB</button>
+        </div>
+        <div class="account-divider">OR USE EMAIL</div>
+        <label class="account-field" for="account-email">Email address<input id="account-email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+        <label class="account-field" for="account-password">Password<input id="account-password" type="password" autocomplete="current-password" minlength="6" placeholder="At least 6 characters"></label>
+        <div class="account-auth-options">
+          <button class="tactile-btn" id="account-create" type="button">CREATE ACCOUNT</button>
+          <button class="tactile-btn" id="account-login" type="button">LOG IN</button>
+        </div>
+        <div id="account-message" class="account-message" role="status">Authentication is not configured yet. The site owner must connect a Firebase project before visitor sign-in is enabled.</div>
         <div id="account-profile" class="account-profile hidden"></div>
-        <button class="tactile-btn hidden" id="account-signout">SIGN OUT</button>
-        <small>Demo UI only: production authentication must verify the Google credential on a trusted backend. This static GitHub Pages site cannot securely manage user sessions.</small>
+        <button class="tactile-btn hidden" id="account-signout" type="button">SIGN OUT</button>
+        <small id="account-setup-note">Visitors will appear in the Firebase Authentication users list. No password or OAuth client secret is stored in this website's source.</small>
       </div>
     </section>
   </div>
