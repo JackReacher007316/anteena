@@ -4803,6 +4803,8 @@ function initUploadReview() {
   const trainingLabelInput = document.getElementById('review-label-type');
   const referenceTypeInput = document.getElementById('review-reference-type');
   const referenceFrequencyInput = document.getElementById('review-reference-frequency');
+  const realAiConsent = document.getElementById('review-real-ai-consent');
+  const realAiStatusEl = document.getElementById('review-real-ai-status');
   const modelStatusEl = document.getElementById('review-model-status');
   const trainingStatusEl = document.getElementById('review-training-status');
   const trainedResultEl = document.getElementById('review-trained-result');
@@ -4860,6 +4862,22 @@ function initUploadReview() {
     if(!response.ok)throw new Error('Image AI endpoint not available. Update the local Anteena bridge and restart it.');
     return response.json();
   };
+  const getRealAiStatus=async()=>{
+    enableLocalBridge();
+    const base=await findBridgeNow();
+    if(base===null)throw new Error('Local bridge not found. Start the updated dashboard/bridge_server.py on your PC, then allow local-network access.');
+    const response=await fetch(bridgeUrl('/api/ai/llm-status'),{cache:'no-store'});
+    const status=await response.json();
+    if(!response.ok)throw new Error(status.message||'Real AI status endpoint unavailable; update and restart the local bridge.');
+    return status;
+  };
+  realAiConsent?.addEventListener('change',async()=>{
+    if(!realAiConsent.checked){realAiStatusEl.textContent='Cloud AI is off. No image or review context will be sent to OpenAI; ASK uses local rule-based notes only.';return;}
+    realAiStatusEl.textContent='Checking local bridge and hosted-model configuration…';
+    try{const status=await getRealAiStatus();realAiStatusEl.textContent=status.configured?`READY · ${status.provider} ${status.model}. A request is sent only when you press ASK.`:status.message;}
+    catch(error){realAiStatusEl.textContent=error.message||'Could not check real AI status.';}
+  });
+  const fileToDataUrl=file=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(new Error('Could not read image for hosted analysis.'));reader.readAsDataURL(file);});
   const parseMetric = (text, regex, convert = x => x) => {
     const m = text.match(regex);
     if (!m) return null;
@@ -5101,9 +5119,82 @@ function initUploadReview() {
     if(/recommend|improv|next|fabricat|design/.test(q))return 'Next: provide substrate/material, dimensions, feed and ground geometry, target frequency, and boundary conditions. Upload CST/VNA Frequency-vs-S11 CSV for the RF graph, then verify the geometry in CST/MATLAB before fabrication.';
     const matching=Object.entries(ANTENNA_CONFIGS).find(([key,cfg])=>q.includes(key)||q.includes((cfg.label||'').toLowerCase())||q.includes((cfg.fullName||'').toLowerCase()));
     if(matching){const [,cfg]=matching;return `${cfg.fullName}. ${cfg.description} Typical applications: ${(cfg.applications||[]).join(', ')}. This is reference information, not a classification from the image pixels.`;}
-    return `From this review I can explain the likely type (${c.classification.label}), extracted values, graph, or MATLAB link. I don't have a cloud language model connected; add more design details or ask a specific question about S11, frequency, bandwidth, gain, or next steps.`;
+    return `I can explain the likely type (${c.classification.label}), extracted values, graphs, or MATLAB link using local review rules. This is not a generative AI response.`;
   };
-  const sendChat=()=>{const q=chatInput.value.trim();if(!q)return;addChat('user',q);chatInput.value='';setTimeout(()=>addChat('agent',answerQuestion(q)),120);};
+  const renderRealAiGraphs=analysis=>{
+    const graphs=Array.isArray(analysis?.graphs_to_render)?analysis.graphs_to_render.slice(0,4):[];
+    charts.querySelector('[data-real-ai-graphs]')?.remove();
+    if(!graphs.length)return;
+    const aiContainer=document.createElement('section');aiContainer.dataset.realAiGraphs='true';
+    const ns='http://www.w3.org/2000/svg';
+    const makeSvg=(tag,attrs={})=>{const node=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([key,value])=>node.setAttribute(key,String(value)));return node;};
+    const addSvgText=(svg,text,x,y,anchor='middle')=>{const node=makeSvg('text',{x,y,'text-anchor':anchor});node.textContent=String(text);svg.appendChild(node);};
+    graphs.forEach((graph,index)=>{
+      const sets=Array.isArray(graph.datasets)?graph.datasets.slice(0,4).map(set=>({label:String(set.label||`Dataset ${index+1}`),points:(Array.isArray(set.points)?set.points:[]).slice(0,150).map(point=>({x:Number(point.x),y:Number(point.y)})).filter(point=>Number.isFinite(point.x)&&Number.isFinite(point.y))})).filter(set=>set.points.length>=2):[];
+      if(!sets.length||!['line','polar'].includes(graph.chart_type))return;
+      const wrapper=document.createElement('div'),title=document.createElement('div'),svg=makeSvg('svg',{viewBox:graph.chart_type==='polar'?'0 0 360 300':'0 0 760 280',role:'img'});
+      title.className='review-chart-title';title.textContent=`REAL AI GRAPH · ${String(graph.title||graph.chart_type)}${graph.is_estimated?' · ESTIMATED':''}`;
+      svg.setAttribute('aria-label',String(graph.title||'AI-generated antenna graph'));
+      if(graph.chart_type==='line'){
+        const W=760,H=280,L=62,R=18,T=28,B=42,all=sets.flatMap(set=>set.points);
+        let minX=Math.min(...all.map(point=>point.x)),maxX=Math.max(...all.map(point=>point.x)),minY=Math.min(...all.map(point=>point.y)),maxY=Math.max(...all.map(point=>point.y));
+        if(minX===maxX){minX-=1;maxX+=1;}if(minY===maxY){minY-=1;maxY+=1;}
+        const X=x=>L+(x-minX)/(maxX-minX)*(W-L-R),Y=y=>T+(maxY-y)/(maxY-minY)*(H-T-B);
+        [0,1,2,3,4].forEach(i=>{const v=minY+(maxY-minY)*i/4,y=Y(v);svg.appendChild(makeSvg('line',{x1:L,y1:y,x2:W-R,y2:y,class:'ai-chart-grid'}));addSvgText(svg,v.toPrecision(3),L-7,y+4,'end');});
+        const threshold=Number(graph.threshold_line?.value);
+        if(Number.isFinite(threshold)&&threshold>=minY&&threshold<=maxY){const y=Y(threshold);svg.appendChild(makeSvg('line',{x1:L,y1:y,x2:W-R,y2:y,class:'ai-chart-threshold'}));addSvgText(svg,graph.threshold_line.label||`${threshold}`,W-R-4,y-4,'end');}
+        sets.forEach((set,si)=>{const d=set.points.map((point,pi)=>`${pi?'L':'M'}${X(point.x).toFixed(1)},${Y(point.y).toFixed(1)}`).join(' ');svg.appendChild(makeSvg('path',{d,class:`chart-trace ai-chart-trace ai-chart-series-${si}${graph.is_estimated?' ai-chart-estimated':''}`}));});
+        addSvgText(svg,graph.x_label||'X', (L+W-R)/2,H-8);const yTitle=makeSvg('text',{transform:`translate(16 ${(H+T-B)/2}) rotate(-90)`,'text-anchor':'middle'});yTitle.textContent=String(graph.y_label||'Y');svg.appendChild(yTitle);addSvgText(svg,minX.toPrecision(4),L,H-22,'start');addSvgText(svg,maxX.toPrecision(4),W-R,H-22,'end');
+      }else{
+        const cx=170,cy=138,radius=102,all=sets.flatMap(set=>set.points),maxValue=Math.max(...all.map(point=>Math.max(point.y,0)),1e-6);
+        [.25,.5,.75,1].forEach(scale=>svg.appendChild(makeSvg('circle',{cx,cy,r:radius*scale,class:'ai-chart-grid'})));
+        [0,45,90,135].forEach(angle=>{const rad=(angle-90)*Math.PI/180,x=cx+radius*Math.cos(rad),y=cy+radius*Math.sin(rad);svg.appendChild(makeSvg('line',{x1:cx,y1:cy,x2:x,y2:y,class:'ai-chart-grid'}));addSvgText(svg,`${angle}°`,x+(x<cx?-9:9),y+(y<cy?-5:11));});
+        sets.forEach((set,si)=>{const path=set.points.map((point,pi)=>{const theta=(point.x-90)*Math.PI/180,r=radius*Math.max(0,point.y)/maxValue;return `${pi?'L':'M'}${(cx+r*Math.cos(theta)).toFixed(1)},${(cy+r*Math.sin(theta)).toFixed(1)}`;}).join(' ')+' Z';svg.appendChild(makeSvg('path',{d:path,class:`ai-chart-trace ai-chart-series-${si}${graph.is_estimated?' ai-chart-estimated':''}`}));});
+        addSvgText(svg,graph.x_label||'Angle (degrees)',180,288);addSvgText(svg,graph.y_label||'Normalized level',180,14);
+      }
+      wrapper.append(title,svg);
+      if(graph.is_estimated){const note=document.createElement('small');note.className='review-empty';note.textContent='The model marked this graph as estimated. It is not measured or solver-verified.';wrapper.appendChild(note);}
+      aiContainer.appendChild(wrapper);
+    });
+    if(aiContainer.children.length)charts.appendChild(aiContainer);
+    charts.classList.remove('hidden');
+  };
+  const askRealAntennaAi=async question=>{
+    const status=await getRealAiStatus();
+    if(!status.configured)throw new Error(status.message||'Real AI is not configured on the local bridge.');
+    const image=selectedFiles.find(isTrainableImage)||null;
+    const context=latestReviewContext?{
+      notes:latestReviewContext.goal,
+      files:latestReviewContext.files,
+      keyword_type_guess:latestReviewContext.classification?.label,
+      extracted_metrics:latestReviewContext.evidenceMetrics,
+      uploaded_sweep:latestReviewContext.trace?{frequency_GHz:latestReviewContext.trace.f.slice(0,120),s11_dB:latestReviewContext.trace.s11.slice(0,120)}:null,
+      reference_curve_status:latestReviewContext.referenceCurves?'estimated generic template only; not a CST result':null
+    }:{notes:document.getElementById('review-goal').value.trim(),files:selectedFiles.map(file=>file.name)};
+    const requestBody={question,context};
+    if(image)requestBody.image_data_url=await fileToDataUrl(image);
+    const response=await fetch(bridgeUrl('/api/ai/vision-chat'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(requestBody)});
+    const result=await response.json();
+    if(!response.ok||result.status!=='ok')throw new Error(result.message||'Real antenna AI request failed.');
+    if(latestReviewContext)latestReviewContext.realAiAnalysis=result.analysis;
+    const pretty=JSON.stringify(result.analysis,null,2);
+    addChat('agent',`REAL MODEL · ${result.provider} ${result.model}\n${pretty}`);
+    const old=reportEl.querySelector('[data-real-ai-analysis]');old?.remove();
+    const details=document.createElement('details');details.dataset.realAiAnalysis='true';
+    const summaryEl=document.createElement('summary');summaryEl.textContent=`Real AI analysis · ${result.provider} ${result.model}`;
+    const pre=document.createElement('pre');pre.textContent=pretty;details.append(summaryEl,pre);reportEl.prepend(details);
+  };
+  const sendChat=async()=>{
+    const q=chatInput.value.trim();if(!q)return;
+    addChat('user',q);chatInput.value='';
+    if(realAiConsent?.checked){
+      const sendButton=document.getElementById('review-chat-send');sendButton.disabled=true;sendButton.textContent='ASKING REAL AI…';
+      try{await askRealAntennaAi(q);}catch(error){addChat('agent',`REAL AI UNAVAILABLE: ${error.message||'Request failed.'}`);}
+      finally{sendButton.disabled=false;sendButton.textContent='ASK';}
+      return;
+    }
+    setTimeout(()=>addChat('agent',`LOCAL RULE-BASED HELP (not a generative AI model): ${answerQuestion(q)}`),120);
+  };
   document.getElementById('review-chat-send')?.addEventListener('click',sendChat);
   chatInput?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendChat();}});
   document.getElementById('review-run')?.addEventListener('click',run);

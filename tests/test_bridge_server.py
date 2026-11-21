@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "dashboard"))
 import bridge_server  # noqa: E402
@@ -120,6 +121,58 @@ class BridgeTestCase(unittest.TestCase):
         self.assertFalse(status["ready"])
         self.assertIn("train_antenna_image_classifier.py", status["training_command"])
         self.assertIn("class_counts", status)
+
+    def test_real_ai_status_never_exposes_api_key(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-secret"}, clear=True):
+            code, status = self.get("/api/ai/llm-status")
+        self.assertEqual(code, 200)
+        self.assertTrue(status["configured"])
+        self.assertNotIn("test-secret", json.dumps(status))
+        self.assertEqual(status["provider"], "OpenAI")
+
+    def test_real_ai_requires_a_local_api_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            code, result = self.post("/api/ai/vision-chat", {"question": "Identify this antenna"})
+        self.assertEqual(code, 503)
+        self.assertEqual(result["status"], "not_configured")
+        self.assertIn("OPENAI_API_KEY", result["message"])
+
+    def test_real_ai_rejects_untrusted_browser_origins(self):
+        request = urllib.request.Request(
+            self.base + "/api/ai/vision-chat",
+            data=json.dumps({"question": "Test"}).encode("utf-8"), method="POST",
+            headers={"Content-Type": "application/json", "Origin": "http://localhost:5500"},
+        )
+        try:
+            urllib.request.urlopen(request, timeout=5)
+            self.fail("untrusted origin should be rejected")
+        except urllib.error.HTTPError as error:
+            self.assertEqual(error.code, 403)
+            self.assertIn("official Anteena Pages", json.loads(error.read())["message"])
+
+    def test_real_ai_vision_route_calls_provider_and_returns_schema_json(self):
+        analysis = {
+            "input_category": "cst_geometry",
+            "antenna_identification": {"primary_type": "patch"},
+            "extracted_metrics": {"status_verdict": "Reference Only"},
+            "graphs_to_render": [], "engineering_suggestions": [], "cst_next_steps": [],
+        }
+        provider_reply = {"choices": [{"message": {"content": json.dumps(analysis)}}]}
+        image_data_url = "data:image/png;base64,aGVsbG8="
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "unit-test-secret"}, clear=True):
+            with patch.object(bridge_server, "urlopen", return_value=io.BytesIO(json.dumps(provider_reply).encode("utf-8"))) as mocked:
+                code, result = self.post("/api/ai/vision-chat", {
+                    "question": "Analyze the antenna geometry", "context": {"target": "2.45 GHz"},
+                    "image_data_url": image_data_url,
+                })
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["analysis"], analysis)
+        request = mocked.call_args.args[0]
+        request_body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request_body["model"], bridge_server.DEFAULT_REAL_AI_MODEL)
+        self.assertEqual(request_body["messages"][1]["content"][1]["image_url"]["url"], image_data_url)
+        self.assertEqual(request.get_header("Authorization"), "Bearer unit-test-secret")
 
     def test_local_image_classifier_requires_a_trained_model(self):
         code, result = self.post("/api/ai/classify", raw=b"not-a-real-image", content_type="image/png")

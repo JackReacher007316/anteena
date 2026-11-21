@@ -2645,6 +2645,13 @@ body {
 .review-reference-frequency label { color:var(--crt-text); font:11px var(--font-mono); }
 .review-charts .estimated-trace { stroke:#fbbf24; stroke-dasharray:7 5; }
 .review-charts .polar-trace { fill:rgba(251,191,36,.08); }
+.review-charts .ai-chart-grid { fill:none; stroke:#334155; stroke-width:1; }
+.review-charts .ai-chart-threshold { stroke:#f59e0b; stroke-width:1.5; stroke-dasharray:4 4; }
+.review-charts .ai-chart-series-0 { stroke:#38bdf8; }
+.review-charts .ai-chart-series-1 { stroke:#fb7185; }
+.review-charts .ai-chart-series-2 { stroke:#a3e635; }
+.review-charts .ai-chart-series-3 { stroke:#c084fc; }
+.review-charts .ai-chart-estimated { stroke-dasharray:7 5; }
 .review-matlab-actions { display:grid; gap:6px; }
 .review-matlab-actions button { min-height:38px; color:#fff; background:#0369a1; border-color:#38bdf8; }
 #review-send-matlab:disabled { opacity:.5; cursor:not-allowed; }
@@ -2659,7 +2666,10 @@ body {
 .review-chat-compose select { flex:1; min-width:0; }
 .review-trained-result { color:#86efac; font:12px/1.5 var(--font-mono); white-space:pre-wrap; }
 .review-agent-title { color:#7dd3fc; font:13px var(--font-mono); }
-.review-chat-log { max-height:180px; overflow:auto; display:grid; gap:7px; padding:6px; background:#050a0f; }
+.review-ai-consent { display:flex; align-items:flex-start; gap:7px; color:#fbbf24; font-size:11px; line-height:1.4; }
+.review-ai-consent input { flex:none; margin-top:2px; }
+#review-real-ai-status { font-size:11px; line-height:1.4; }
+.review-chat-log { max-height:240px; overflow:auto; display:grid; gap:7px; padding:6px; background:#050a0f; }
 .review-chat-message { max-width:96%; padding:7px 9px; border-radius:4px; font-size:11px; line-height:1.5; white-space:pre-wrap; }
 .review-chat-message.agent { color:#d7e8f7; background:#102435; justify-self:start; }
 .review-chat-message.user { color:#fff; background:#075985; justify-self:end; }
