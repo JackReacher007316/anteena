@@ -1172,12 +1172,14 @@
             <button class="tactile-btn" id="review-train-model" type="button" disabled>TRAIN MODEL ON THIS PC</button>
             <div id="review-trained-result" class="review-trained-result" aria-live="polite"></div>
           </section>
-          <section class="review-agent" aria-label="Anteena AI assistant">
-            <div class="review-agent-title">🤖 ANTEENA AI · DESIGN ASSISTANT</div>
-            <div class="review-chat-log" id="review-chat-log" aria-live="polite"><div class="review-chat-message agent">Upload a design and run analysis. Then ask me about its likely antenna type, graph, measurements, or next steps.</div></div>
+          <section class="review-agent" aria-label="Antenna AI assistant">
+            <div class="review-agent-title">🤖 ANTENNA ASSISTANT · REAL VISION AI OPTIONAL</div>
+            <div id="review-real-ai-status" class="review-empty">Real AI requires the local bridge and an OpenAI API key configured on your PC.</div>
+            <label class="review-ai-consent"><input id="review-real-ai-consent" type="checkbox"> Send my question, review context, and selected image to OpenAI through my local bridge (may incur API charges).</label>
+            <div class="review-chat-log" id="review-chat-log" aria-live="polite"><div class="review-chat-message agent">Unconfigured/offline mode uses only rule-based review notes. Enable hosted vision AI above to request an actual model response.</div></div>
             <label class="review-label" for="review-chat-input">Ask about your design</label>
-            <div class="review-chat-compose"><input id="review-chat-input" type="text" placeholder="What does this graph show?" autocomplete="off"><button class="tactile-btn" id="review-chat-send" type="button">ASK</button></div>
-            <small>Runs in this browser using your review and antenna reference data; no uploaded file is sent to a cloud AI.</small>
+            <div class="review-chat-compose"><input id="review-chat-input" type="text" placeholder="Ask about the uploaded antenna or CST view…" autocomplete="off"><button class="tactile-btn" id="review-chat-send" type="button">ASK</button></div>
+            <small>Image upload to OpenAI occurs only after you enable consent. API keys stay in the local bridge environment and are never included in the page or repository.</small>
           </section>
         </div>
       </div>
