@@ -1129,13 +1129,19 @@
       </header>
       <div class="review-intro">
         <strong>Upload an antenna design and click once to analyze it and generate graphs.</strong>
-        <span>Any antenna type is accepted. Image uploads get a visual-profile graph; CSV sweeps get an S11-vs-frequency graph. The local Anteena assistant can answer questions about your current review.</span>
+        <span>Any antenna type is accepted. CST geometry images can also get clearly labeled illustrative S11 and polar reference graphs when you provide the antenna type and center frequency. Uploaded CSV sweeps take precedence as real supplied data.</span>
       </div>
       <div class="review-grid">
         <div class="review-inputs">
           <label class="review-label" for="review-goal">Optional notes or target specifications</label>
           <textarea id="review-goal" class="review-textarea" placeholder="Optional: frequency, material, dimensions, target S11/gain. You can leave this blank and upload the design."></textarea>
-          <div class="review-any-type">ANY ANTENNA · NO TYPE SELECTION · UPLOAD AND ANALYZE</div>
+          <div class="review-any-type">ANY ANTENNA · FREE-TEXT TYPE · UPLOAD AND ANALYZE</div>
+          <section class="review-reference-inputs" aria-label="Estimated reference graph settings">
+            <strong>Optional CST geometry/photo reference graphs</strong>
+            <span>For a geometry/photo image (not a screenshot of an RF graph), enter type and center frequency to add illustrative S11 and normalized polar curves. These are estimates, not CST results.</span>
+            <input id="review-reference-type" type="text" maxlength="80" placeholder="Antenna type, e.g. inset-fed patch, custom array" aria-label="Antenna type for estimated reference graphs">
+            <div class="review-reference-frequency"><label for="review-reference-frequency">Center frequency (GHz)</label><input id="review-reference-frequency" type="number" min="0.001" max="1000" step="any" placeholder="e.g. 2.45" aria-label="Reference center frequency in GHz"></div>
+          </section>
           <label class="review-label">Upload design image, Word document, or code</label>
           <label class="review-drop" id="review-drop" for="review-files">
             <span class="review-drop-icon">⇧</span><strong>Upload antenna design — click or drop here</strong>
@@ -1208,6 +1214,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js" defer></script>
+<script src="reference_curves.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
