@@ -5271,31 +5271,62 @@ function initUploadReview() {
   });
 }
 
-function initGoogleAccount() {
-  const modal=document.getElementById('account-modal'); if(!modal)return;
-  const open=()=>modal.classList.remove('hidden');
-  const close=()=>modal.classList.add('hidden');
+function initFirebaseAccount() {
+  const modal=document.getElementById('account-modal');if(!modal)return;
+  const open=()=>modal.classList.remove('hidden'),close=()=>modal.classList.add('hidden');
   document.getElementById('btn-open-account')?.addEventListener('click',open);
   document.getElementById('account-close')?.addEventListener('click',close);
-  modal.addEventListener('click',e=>{if(e.target===modal)close();});
-  const configured=(document.querySelector('meta[name="google-client-id"]')?.content||'').trim();
-  if(!configured || configured==='GOOGLE_CLIENT_ID') return;
-  const script=document.createElement('script'); script.src='https://accounts.google.com/gsi/client'; script.async=true; script.defer=true;
-  script.onload=()=>{
-    if(!window.google?.accounts?.id)return;
-    google.accounts.id.initialize({client_id:configured,callback:credential=>{
-      try {
-        const payload=JSON.parse(decodeURIComponent(escape(atob(credential.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))));
-        document.getElementById('account-message').textContent='Signed in for this browser session. For a secure production session, verify this credential on your trusted backend.';
-        const profile=document.getElementById('account-profile'); profile.innerHTML=`<img src="${String(payload.picture||'').replace(/["<>]/g,'')}" alt=""><span>${String(payload.name||payload.email||'Google user').replace(/[<>]/g,'')}</span>`; profile.classList.remove('hidden');
-        document.getElementById('account-signout').classList.remove('hidden');
-      } catch (_) { document.getElementById('account-message').textContent='Google returned a credential, but its profile could not be displayed.'; }
-    }});
-    google.accounts.id.renderButton(document.getElementById('google-signin-button'),{theme:'outline',size:'large',text:'signin_with',shape:'rectangular'});
-    document.getElementById('account-message').textContent='Continue with Google. This browser-only demo does not create a secure server session.';
+  modal.addEventListener('click',event=>{if(event.target===modal)close();});
+  const message=document.getElementById('account-message'),profile=document.getElementById('account-profile'),signOut=document.getElementById('account-signout');
+  const emailInput=document.getElementById('account-email'),passwordInput=document.getElementById('account-password');
+  const actionButtons=['account-google','account-github','account-create','account-login','account-signout'].map(id=>document.getElementById(id)).filter(Boolean);
+  const setMessage=text=>{message.textContent=text;};
+  const meta=name=>(document.querySelector(`meta[name="${name}"]`)?.content||'').trim();
+  const config={apiKey:meta('firebase-api-key'),authDomain:meta('firebase-auth-domain'),projectId:meta('firebase-project-id'),appId:meta('firebase-app-id')};
+  const configured=Object.values(config).every(value=>value&&!/^FIREBASE_/i.test(value));
+  if(!configured){
+    actionButtons.forEach(button=>{button.disabled=true;});emailInput.disabled=true;passwordInput.disabled=true;
+    setMessage('Account sign-in is not active yet. The site owner needs to configure Firebase Authentication.');
+    document.getElementById('account-setup-note').textContent='Enable Email/Password, Google, and GitHub providers in Firebase Console; set the public Firebase Web config in dashboard/index.html. GitHub OAuth secrets belong only in Firebase Console.';
+    return;
+  }
+  const loadScript=src=>new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.async=true;script.onload=resolve;script.onerror=()=>reject(new Error('Firebase SDK failed to load. Check the network/content blocker.'));document.head.appendChild(script);});
+  const runAuth=async()=>{
+    try{
+      if(!window.firebase?.initializeApp){await loadScript('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');}
+      if(!window.firebase?.auth){await loadScript('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js');}
+      const app=window.firebase.apps.length?window.firebase.app():window.firebase.initializeApp(config);
+      const auth=app.auth();
+      window.anteenaFirebaseAuth=auth;
+      const friendlyError=error=>({
+        'auth/email-already-in-use':'An account already uses that email. Try logging in.',
+        'auth/invalid-email':'Enter a valid email address.',
+        'auth/weak-password':'Choose a stronger password (at least 6 characters).',
+        'auth/user-not-found':'No account was found for that email.',
+        'auth/wrong-password':'The password is incorrect.',
+        'auth/invalid-credential':'Email or password is incorrect.',
+        'auth/popup-closed-by-user':'The sign-in window was closed before completion.',
+        'auth/account-exists-with-different-credential':'This email already uses another sign-in provider. Sign in with that provider first.',
+        'auth/operation-not-allowed':'This sign-in provider is not enabled in Firebase Console.',
+        'auth/unauthorized-domain':'Add this website domain to Firebase Authentication authorized domains.'
+      }[error?.code]||'Authentication failed. Check Firebase provider and authorized-domain settings, then try again.');
+      const finish=async action=>{actionButtons.forEach(button=>button.disabled=true);try{await action();}catch(error){setMessage(friendlyError(error));}finally{actionButtons.forEach(button=>button.disabled=false);}};
+      auth.onAuthStateChanged(user=>{
+        profile.replaceChildren();
+        if(user){
+          if(user.photoURL){const image=document.createElement('img');image.src=user.photoURL;image.alt='';profile.appendChild(image);}
+          const identity=document.createElement('span');identity.textContent=`${user.displayName||user.email||'Anteena visitor'}${user.email&&user.displayName?` · ${user.email}`:''}`;profile.appendChild(identity);
+          profile.classList.remove('hidden');signOut.classList.remove('hidden');setMessage('Signed in. Firebase Authentication is managing this visitor session.');
+        }else{profile.classList.add('hidden');signOut.classList.add('hidden');setMessage('Create an account or choose a sign-in provider.');}
+      });
+      document.getElementById('account-google').addEventListener('click',()=>finish(()=>auth.signInWithPopup(new window.firebase.auth.GoogleAuthProvider())));
+      document.getElementById('account-github').addEventListener('click',()=>finish(()=>auth.signInWithPopup(new window.firebase.auth.GithubAuthProvider())));
+      document.getElementById('account-create').addEventListener('click',()=>finish(()=>auth.createUserWithEmailAndPassword(emailInput.value.trim(),passwordInput.value)));
+      document.getElementById('account-login').addEventListener('click',()=>finish(()=>auth.signInWithEmailAndPassword(emailInput.value.trim(),passwordInput.value)));
+      signOut.addEventListener('click',()=>finish(()=>auth.signOut()));
+    }catch(error){actionButtons.forEach(button=>{button.disabled=true;});setMessage(error.message||'Firebase Authentication could not initialize.');}
   };
-  document.head.appendChild(script);
-  document.getElementById('account-signout')?.addEventListener('click',()=>{document.getElementById('account-profile').classList.add('hidden');document.getElementById('account-signout').classList.add('hidden');document.getElementById('account-message').textContent='Signed out of the local demo.';});
+  runAuth();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -5410,7 +5441,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Init themes & live clock
   initUploadReview();
-  initGoogleAccount();
+  initFirebaseAccount();
   initThemeSwitcher();
   initLiveClock();
   initSearch();

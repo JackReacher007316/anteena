@@ -2677,9 +2677,16 @@ body {
 .review-chat-compose input { min-width:0; flex:1; padding:8px; color:var(--text-main); background:var(--win-dark); border:1px solid var(--win-border-hi); font:12px var(--font-code); }
 .review-chat-compose button { color:#fff; background:#0369a1; border-color:#38bdf8; }
 .review-agent small { color:var(--text-muted); font-size:10px; line-height:1.4; }
-.account-window { width:min(460px, 94vw); }
-.account-content { padding:26px; display:flex; align-items:center; flex-direction:column; text-align:center; gap:12px; }
-.account-mark { font-size:42px; }
+.account-window { width:min(500px, 94vw); max-height:92vh; overflow:auto; }
+.account-content { padding:26px; display:flex; align-items:stretch; flex-direction:column; text-align:center; gap:12px; }
+.account-mark { font-size:42px; align-self:center; }
+.account-auth-options { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.account-provider { color:#fff; background:#15445c; border-color:#38bdf8; }
+.account-auth-options button { min-height:40px; }
+.account-divider { color:var(--text-muted); font:11px var(--font-mono); }
+.account-field { display:grid; gap:6px; color:var(--crt-text); font:11px var(--font-mono); text-align:left; }
+.account-field input { width:100%; box-sizing:border-box; padding:10px; color:var(--text-main); background:var(--win-dark); border:1px solid var(--win-border-hi); font:13px var(--font-code); }
+.account-auth-options button:disabled,.account-field input:disabled { opacity:.55; cursor:not-allowed; }
 .account-content h2 { color:var(--crt-text); font:24px var(--font-crt); }
 .account-content p,.account-content small { color:var(--text-muted); line-height:1.5; }
 .account-content small { font-size:10px; }
